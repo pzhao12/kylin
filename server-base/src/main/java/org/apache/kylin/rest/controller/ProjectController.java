@@ -20,7 +20,6 @@ package org.apache.kylin.rest.controller;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import org.apache.commons.lang.StringUtils;
@@ -33,7 +32,6 @@ import org.apache.kylin.rest.service.AccessService;
 import org.apache.kylin.rest.service.CubeService;
 import org.apache.kylin.rest.service.ProjectService;
 import org.apache.kylin.rest.util.AclEvaluate;
-import org.apache.kylin.rest.util.ValidateUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +52,8 @@ import org.springframework.web.bind.annotation.ResponseBody;
 @RequestMapping(value = "/projects")
 public class ProjectController extends BasicController {
     private static final Logger logger = LoggerFactory.getLogger(ProjectController.class);
+
+    private static final char[] VALID_PROJECTNAME = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_".toCharArray();
 
     @Autowired
     @Qualifier("projectService")
@@ -77,20 +77,18 @@ public class ProjectController extends BasicController {
      */
     @RequestMapping(value = "", method = { RequestMethod.GET }, produces = { "application/json" })
     @ResponseBody
-    public List<ProjectInstance> getProjects(@RequestParam(value = "limit", required = false) Integer limit,
-            @RequestParam(value = "offset", required = false) Integer offset) {
+    public List<ProjectInstance> getProjects(@RequestParam(value = "limit", required = false) Integer limit, @RequestParam(value = "offset", required = false) Integer offset) {
         return projectService.listProjects(limit, offset);
     }
 
     @RequestMapping(value = "/readable", method = { RequestMethod.GET }, produces = { "application/json" })
     @ResponseBody
-    public List<ProjectInstance> getReadableProjects(@RequestParam(value = "limit", required = false) Integer limit,
-            @RequestParam(value = "offset", required = false) Integer offset) {
+    public List<ProjectInstance> getReadableProjects(@RequestParam(value = "limit", required = false) Integer limit, @RequestParam(value = "offset", required = false) Integer offset) {
 
         List<ProjectInstance> readableProjects = new ArrayList<ProjectInstance>();
 
         //list all projects first
-        List<ProjectInstance> projectInstances = projectService.listAllProjects(null, null);
+        List<ProjectInstance> projectInstances = projectService.listAllProjects(limit, offset);
 
         for (ProjectInstance projectInstance : projectInstances) {
 
@@ -110,18 +108,7 @@ public class ProjectController extends BasicController {
             }
 
         }
-        int projectLimit = (null == limit) ? Integer.MAX_VALUE : limit;
-        int projectOffset = (null == offset) ? 0 : offset;
-
-        if (readableProjects.size() <= projectOffset) {
-            return Collections.emptyList();
-        }
-
-        if ((readableProjects.size() - projectOffset) < projectLimit) {
-            return readableProjects.subList(projectOffset, readableProjects.size());
-        }
-
-        return readableProjects.subList(projectOffset, projectOffset + projectLimit);
+        return readableProjects;
     }
 
     @RequestMapping(value = "", method = { RequestMethod.POST }, produces = { "application/json" })
@@ -133,16 +120,16 @@ public class ProjectController extends BasicController {
             throw new InternalErrorException("A project name must be given to create a project");
         }
 
-        if (!ValidateUtil.isAlphanumericUnderscore(projectDesc.getName())) {
-            throw new BadRequestException(
-                    String.format("Invalid Project name %s, only letters, numbers and underscore supported."),
-                    projectDesc.getName());
+        if (!StringUtils.containsOnly(projectDesc.getName(), VALID_PROJECTNAME)) {
+            logger.info("Invalid Project name {}, only letters, numbers and underline supported.", projectDesc.getName());
+            throw new BadRequestException("Invalid Project name, only letters, numbers and underline supported.");
         }
 
         ProjectInstance createdProj = null;
         try {
             createdProj = projectService.createProject(projectDesc);
         } catch (Exception e) {
+            logger.error("Failed to deal with the request.", e);
             throw new InternalErrorException(e.getLocalizedMessage());
         }
 
@@ -169,8 +156,7 @@ public class ProjectController extends BasicController {
             if (projectDesc.getName().equals(currentProject.getName())) {
                 updatedProj = projectService.updateProject(projectDesc, currentProject);
             } else {
-                throw new IllegalStateException("Rename project is not supported yet, from " + formerProjectName
-                        + " to " + projectDesc.getName());
+                updatedProj = projectService.renameProject(projectDesc, currentProject);
             }
         } catch (Exception e) {
             logger.error("Failed to deal with the request.", e);

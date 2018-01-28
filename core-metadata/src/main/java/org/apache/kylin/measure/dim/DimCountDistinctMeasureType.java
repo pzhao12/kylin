@@ -32,10 +32,11 @@ import org.apache.kylin.metadata.realization.SQLDigest;
 
 import com.google.common.collect.ImmutableMap;
 
+/**
+ * Created by dongli on 4/20/16.
+ */
 public class DimCountDistinctMeasureType extends MeasureType<Object> {
-    public static final String DATATYPE_DIM_DC = "dim_dc";
-
-    public static class Factory extends MeasureTypeFactory<Object> {
+    public static class DimCountDistinctMeasureTypeFactory extends MeasureTypeFactory<Object> {
 
         @Override
         public MeasureType<Object> createMeasureType(String funcName, DataType dataType) {
@@ -44,17 +45,17 @@ public class DimCountDistinctMeasureType extends MeasureType<Object> {
 
         @Override
         public String getAggrFunctionName() {
-            return FunctionDesc.FUNC_COUNT_DISTINCT;
+            return null;
         }
 
         @Override
         public String getAggrDataTypeName() {
-            return DATATYPE_DIM_DC;
+            return null;
         }
 
         @Override
         public Class getAggrDataTypeSerializer() {
-            return DimCountDistincSerializer.class;
+            return null;
         }
 
     }
@@ -66,7 +67,7 @@ public class DimCountDistinctMeasureType extends MeasureType<Object> {
 
     @Override
     public MeasureAggregator newAggregator() {
-        return new DimCountDistinctAggregator();
+        throw new UnsupportedOperationException("No aggregator for this measure type.");
     }
 
     @Override
@@ -79,8 +80,7 @@ public class DimCountDistinctMeasureType extends MeasureType<Object> {
         return false;
     }
 
-    static final Map<String, Class<?>> UDAF_MAP = ImmutableMap.<String, Class<?>> of(FunctionDesc.FUNC_COUNT_DISTINCT,
-            DimCountDistinctAggFunc.class);
+    static final Map<String, Class<?>> UDAF_MAP = ImmutableMap.<String, Class<?>> of(FunctionDesc.FUNC_COUNT_DISTINCT, DimCountDistinctAggFunc.class);
 
     @Override
     public Map<String, Class<?>> getRewriteCalciteAggrFunctions() {

@@ -69,18 +69,18 @@ public class KafkaConfigService extends BasicService {
     }
 
     public KafkaConfig createKafkaConfig(KafkaConfig config, String project) throws IOException {
-        aclEvaluate.checkProjectAdminPermission(project);
+        aclEvaluate.checkProjectWritePermission(project);
         Message msg = MsgPicker.getMsg();
 
         if (getKafkaManager().getKafkaConfig(config.getName()) != null) {
             throw new BadRequestException(String.format(msg.getKAFKA_CONFIG_ALREADY_EXIST(), config.getName()));
         }
-        getKafkaManager().createKafkaConfig(config);
+        getKafkaManager().createKafkaConfig(config.getName(), config);
         return config;
     }
 
     public KafkaConfig updateKafkaConfig(KafkaConfig config, String project) throws IOException {
-        aclEvaluate.checkProjectAdminPermission(project);
+        aclEvaluate.checkProjectWritePermission(project);
         return getKafkaManager().updateKafkaConfig(config);
     }
 
@@ -90,7 +90,7 @@ public class KafkaConfigService extends BasicService {
     }
 
     public void dropKafkaConfig(KafkaConfig config, String project) throws IOException {
-        aclEvaluate.checkProjectAdminPermission(project);
+        aclEvaluate.checkProjectWritePermission(project);
         getKafkaManager().removeKafkaConfig(config);
     }
 }

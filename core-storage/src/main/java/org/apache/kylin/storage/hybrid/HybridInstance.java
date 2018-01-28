@@ -50,26 +50,15 @@ import com.google.common.collect.Lists;
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
 public class HybridInstance extends RootPersistentEntity implements IRealization {
 
-    private final static Logger logger = LoggerFactory.getLogger(HybridInstance.class);
-
-    public static HybridInstance create(KylinConfig config, String name, List<RealizationEntry> realizationEntries) {
-        HybridInstance hybridInstance = new HybridInstance();
-
-        hybridInstance.setConfig(config);
-        hybridInstance.setName(name);
-        hybridInstance.setRealizationEntries(realizationEntries);
-        hybridInstance.updateRandomUuid();
-
-        return hybridInstance;
-    }
-    
-    // ============================================================================
-
     @JsonIgnore
     private KylinConfig config;
 
     @JsonProperty("name")
     private String name;
+
+    public void setRealizationEntries(List<RealizationEntry> realizationEntries) {
+        this.realizationEntries = realizationEntries;
+    }
 
     @JsonProperty("realizations")
     private List<RealizationEntry> realizationEntries;
@@ -86,17 +75,21 @@ public class HybridInstance extends RootPersistentEntity implements IRealization
     private long dateRangeEnd;
     private boolean isReady = false;
 
-    @Override
-    public String resourceName() {
-        return name;
-    }
-    
+    private final static Logger logger = LoggerFactory.getLogger(HybridInstance.class);
+
     public List<RealizationEntry> getRealizationEntries() {
         return realizationEntries;
     }
 
-    public void setRealizationEntries(List<RealizationEntry> realizationEntries) {
-        this.realizationEntries = realizationEntries;
+    public static HybridInstance create(KylinConfig config, String name, List<RealizationEntry> realizationEntries) {
+        HybridInstance hybridInstance = new HybridInstance();
+
+        hybridInstance.setConfig(config);
+        hybridInstance.setName(name);
+        hybridInstance.setRealizationEntries(realizationEntries);
+        hybridInstance.updateRandomUuid();
+
+        return hybridInstance;
     }
 
     private void init() {
@@ -195,8 +188,6 @@ public class HybridInstance extends RootPersistentEntity implements IRealization
                 result.capable = true;
                 result.cost = Math.min(result.cost, child.cost);
                 result.influences.addAll(child.influences);
-            } else {
-                result.incapableCause = child.incapableCause;
             }
         }
 
@@ -204,15 +195,6 @@ public class HybridInstance extends RootPersistentEntity implements IRealization
             result.cost--; // let hybrid win its children
 
         return result;
-    }
-
-    @Override
-    public int getCost() {
-        int c = Integer.MAX_VALUE;
-        for (IRealization realization : getRealizations()) {
-            c = Math.min(realization.getCost(), c);
-        }
-        return c;
     }
 
     @Override
@@ -238,7 +220,7 @@ public class HybridInstance extends RootPersistentEntity implements IRealization
         init();
         return allColumnDescs;
     }
-
+    
     @Override
     public List<MeasureDesc> getMeasures() {
         init();

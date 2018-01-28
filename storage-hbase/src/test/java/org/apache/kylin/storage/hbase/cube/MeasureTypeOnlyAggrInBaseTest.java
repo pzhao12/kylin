@@ -35,6 +35,7 @@ import org.apache.kylin.cube.model.CubeDesc;
 import org.apache.kylin.measure.MeasureAggregator;
 import org.apache.kylin.measure.MeasureIngester;
 import org.apache.kylin.measure.MeasureType;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.model.FunctionDesc;
 import org.apache.kylin.metadata.model.MeasureDesc;
 import org.apache.kylin.metadata.model.TblColRef;
@@ -64,6 +65,7 @@ public class MeasureTypeOnlyAggrInBaseTest extends LocalFileMetadataTestCase {
     @Before
     public void setUp() throws Exception {
         this.createTestMetadata();
+        MetadataManager.clearCache();
 
         cube = getTestKylinCubeWithSeller();
         cubeDesc = cube.getDescriptor();
@@ -89,10 +91,10 @@ public class MeasureTypeOnlyAggrInBaseTest extends LocalFileMetadataTestCase {
     @Test
     public void testIdentifyCuboidV2() throws InvocationTargetException, NoSuchMethodException, IllegalAccessException, NoSuchFieldException {
         CubeDesc cubeDesc = cube.getDescriptor();
-        Cuboid ret = Cuboid.findCuboid(cube.getCuboidScheduler(), Sets.<TblColRef> newHashSet(), Lists.<FunctionDesc> newArrayList());
+        Cuboid ret = Cuboid.identifyCuboid(cube, Sets.<TblColRef> newHashSet(), Lists.<FunctionDesc> newArrayList());
         long baseCuboidId = cubeDesc.getRowkey().getFullMask();
         assertNotEquals(baseCuboidId, ret.getId());
-        ret = Cuboid.findCuboid(cube.getCuboidScheduler(), dimensions, metrics);
+        ret = Cuboid.identifyCuboid(cube, dimensions, metrics);
         assertEquals(baseCuboidId, ret.getId());
     }
 

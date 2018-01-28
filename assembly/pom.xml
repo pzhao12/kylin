@@ -27,7 +27,7 @@
     <parent>
         <artifactId>kylin</artifactId>
         <groupId>org.apache.kylin</groupId>
-        <version>2.3.0-SNAPSHOT</version>
+        <version>2.2.0-SNAPSHOT</version>
     </parent>
 
     <properties>
@@ -193,6 +193,10 @@
                                     <shadedPattern>${shadeBase}.com.tdunning</shadedPattern>
                                 </relocation>
                                 <relocation>
+                                    <pattern>com.fasterxml.jackson</pattern>
+                                    <shadedPattern>${shadeBase}.com.fasterxml.jackson</shadedPattern>
+                                </relocation>
+                                <relocation>
                                     <pattern>org.apache.commons.codec</pattern>
                                     <shadedPattern>${shadeBase}.org.apache.commons.codec</shadedPattern>
                                 </relocation>
@@ -207,18 +211,6 @@
                                 <relocation>
                                     <pattern>org.roaringbitmap</pattern>
                                     <shadedPattern>${shadeBase}.org.roaringbitmap</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.apache.commons.dbcp</pattern>
-                                    <shadedPattern>${shadeBase}.org.apache.commons.dbcp</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.apache.commons.pool</pattern>
-                                    <shadedPattern>${shadeBase}.org.apache.commons.pool</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.apache.commons.jocl</pattern>
-                                    <shadedPattern>${shadeBase}.org.apache.commons.jocl</shadedPattern>
                                 </relocation>
                             </relocations>
                             <filters>

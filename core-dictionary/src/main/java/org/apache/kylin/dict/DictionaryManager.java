@@ -24,6 +24,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -32,6 +34,7 @@ import org.apache.kylin.common.persistence.ResourceStore;
 import org.apache.kylin.common.util.ClassUtil;
 import org.apache.kylin.common.util.Dictionary;
 import org.apache.kylin.common.util.JsonUtil;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.datatype.DataType;
 import org.apache.kylin.metadata.model.TblColRef;
 import org.apache.kylin.source.IReadableTable;
@@ -52,13 +55,28 @@ public class DictionaryManager {
 
     private static final DictionaryInfo NONE_INDICATOR = new DictionaryInfo();
 
+    // static cached instances
+    private static final ConcurrentMap<KylinConfig, DictionaryManager> CACHE = new ConcurrentHashMap<KylinConfig, DictionaryManager>();
+
     public static DictionaryManager getInstance(KylinConfig config) {
-        return config.getManager(DictionaryManager.class);
+        DictionaryManager r = CACHE.get(config);
+        if (r == null) {
+            synchronized (DictionaryManager.class) {
+                r = CACHE.get(config);
+                if (r == null) {
+                    r = new DictionaryManager(config);
+                    CACHE.put(config, r);
+                    if (CACHE.size() > 1) {
+                        logger.warn("More than one singleton exist");
+                    }
+                }
+            }
+        }
+        return r;
     }
 
-    // called by reflection
-    static DictionaryManager newInstance(KylinConfig config) throws IOException {
-        return new DictionaryManager(config);
+    public static void clearCache() {
+        CACHE.clear();
     }
 
     // ============================================================================
@@ -97,10 +115,6 @@ public class DictionaryManager {
 
     public DictionaryInfo getDictionaryInfo(final String resourcePath) throws IOException {
         try {
-            //when all the value for this column is NULL, the resourcePath will be NULL
-            if (resourcePath == null) {
-                return NONE_INDICATOR;
-            }
             DictionaryInfo result = dictCache.get(resourcePath);
             if (result == NONE_INDICATOR) {
                 return null;
@@ -162,7 +176,7 @@ public class DictionaryManager {
     }
 
     private String checkDupByContent(DictionaryInfo dictInfo, Dictionary<String> dict) throws IOException {
-        ResourceStore store = getStore();
+        ResourceStore store = MetadataManager.getInstance(config).getStore();
         NavigableSet<String> existings = store.listResources(dictInfo.getResourceDir());
         if (existings == null)
             return null;
@@ -203,16 +217,6 @@ public class DictionaryManager {
 
         if (dicts.size() == 1)
             return dicts.get(0);
-
-        /**
-         * AppendTrieDictionary needn't merge
-         * more than one AppendTrieDictionary will generate when user use {@link SegmentAppendTrieDictBuilder}
-         */
-        for (DictionaryInfo dict: dicts) {
-            if (dict.getDictionaryClass().equals(AppendTrieDictionary.class.getName())) {
-                return dict;
-            }
-        }
 
         DictionaryInfo firstDictInfo = null;
         int totalSize = 0;
@@ -329,7 +333,7 @@ public class DictionaryManager {
     }
 
     private String checkDupByInfo(DictionaryInfo dictInfo) throws IOException {
-        final ResourceStore store = getStore();
+        final ResourceStore store = MetadataManager.getInstance(config).getStore();
         final List<DictionaryInfo> allResources = store.getAllResources(dictInfo.getResourceDir(), DictionaryInfo.class, DictionaryInfoSerializer.INFO_SERIALIZER);
 
         TableSignature input = dictInfo.getInput();
@@ -343,7 +347,7 @@ public class DictionaryManager {
     }
 
     private DictionaryInfo findLargestDictInfo(DictionaryInfo dictInfo) throws IOException {
-        final ResourceStore store = getStore();
+        final ResourceStore store = MetadataManager.getInstance(config).getStore();
         final List<DictionaryInfo> allResources = store.getAllResources(dictInfo.getResourceDir(), DictionaryInfo.class, DictionaryInfoSerializer.INFO_SERIALIZER);
 
         DictionaryInfo largestDict = null;
@@ -362,7 +366,7 @@ public class DictionaryManager {
 
     public void removeDictionary(String resourcePath) throws IOException {
         logger.info("Remvoing dict: " + resourcePath);
-        ResourceStore store = getStore();
+        ResourceStore store = MetadataManager.getInstance(config).getStore();
         store.deleteResource(resourcePath);
         dictCache.invalidate(resourcePath);
     }
@@ -372,7 +376,7 @@ public class DictionaryManager {
         info.setSourceTable(srcTable);
         info.setSourceColumn(srcCol);
 
-        ResourceStore store = getStore();
+        ResourceStore store = MetadataManager.getInstance(config).getStore();
         NavigableSet<String> existings = store.listResources(info.getResourceDir());
         if (existings == null)
             return;
@@ -382,7 +386,7 @@ public class DictionaryManager {
     }
 
     void save(DictionaryInfo dict) throws IOException {
-        ResourceStore store = getStore();
+        ResourceStore store = MetadataManager.getInstance(config).getStore();
         String path = dict.getResourcePath();
         logger.info("Saving dictionary at " + path);
 
@@ -398,15 +402,11 @@ public class DictionaryManager {
     }
 
     DictionaryInfo load(String resourcePath, boolean loadDictObj) throws IOException {
-        ResourceStore store = getStore();
+        ResourceStore store = MetadataManager.getInstance(config).getStore();
 
         logger.info("DictionaryManager(" + System.identityHashCode(this) + ") loading DictionaryInfo(loadDictObj:" + loadDictObj + ") at " + resourcePath);
         DictionaryInfo info = store.getResource(resourcePath, DictionaryInfo.class, loadDictObj ? DictionaryInfoSerializer.FULL_SERIALIZER : DictionaryInfoSerializer.INFO_SERIALIZER);
         return info;
-    }
-
-    private ResourceStore getStore() {
-        return ResourceStore.getStore(config);
     }
 
 }

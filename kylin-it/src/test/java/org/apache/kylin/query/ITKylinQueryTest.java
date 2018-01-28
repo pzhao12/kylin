@@ -83,8 +83,7 @@ public class ITKylinQueryTest extends KylinTestBase {
         try {
 
             Map<String, String> toggles = Maps.newHashMap();
-            toggles.put(BackdoorToggles.DEBUG_TOGGLE_COPROCESSOR_BEHAVIOR,
-                    StorageSideBehavior.SCAN_FILTER_AGGR_CHECKMEM_WITHDELAY.toString());//delay 10ms for every scan
+            toggles.put(BackdoorToggles.DEBUG_TOGGLE_COPROCESSOR_BEHAVIOR, StorageSideBehavior.SCAN_FILTER_AGGR_CHECKMEM_WITHDELAY.toString());//delay 10ms for every scan
             BackdoorToggles.setToggles(toggles);
 
             KylinConfig.getInstanceFromEnv().setProperty("kylin.storage.hbase.coprocessor-timeout-seconds", "3");
@@ -106,8 +105,7 @@ public class ITKylinQueryTest extends KylinTestBase {
     }
 
     protected void runTimeoutQueries() throws Exception {
-        List<File> sqlFiles = getFilesFromFolder(
-                new File(getQueryFolderPrefix() + "src/test/resources/query/sql_timeout"), ".sql");
+        List<File> sqlFiles = getFilesFromFolder(new File(getQueryFolderPrefix() + "src/test/resources/query/sql_timeout"), ".sql");
         for (File sqlFile : sqlFiles) {
             try {
                 runSQL(sqlFile, false, false);
@@ -137,7 +135,7 @@ public class ITKylinQueryTest extends KylinTestBase {
     public void testSingleRunQuery() throws Exception {
         System.setProperty("log4j.configuration", "file:../build/conf/kylin-tools-log4j.properties");
 
-        String queryFileName = getQueryFolderPrefix() + "src/test/resources/query/sql_verifyCount/query02.sql";
+        String queryFileName = getQueryFolderPrefix() + "src/test/resources/query/sql_verifyCount/query03.sql";
 
         File sqlFile = new File(queryFileName);
         if (sqlFile.exists()) {
@@ -207,14 +205,15 @@ public class ITKylinQueryTest extends KylinTestBase {
             Map<String, String> toggles = Maps.newHashMap();
             toggles.put(BackdoorToggles.DEBUG_TOGGLE_PREPARE_ONLY, "true");
             BackdoorToggles.setToggles(toggles);
-
+            
             verifyResultRowColCount(getQueryFolderPrefix() + "src/test/resources/query/sql_verifyCount");
-
+            
         } finally {
             BackdoorToggles.cleanToggles();
+            
         }
     }
-
+    
     @Test
     public void testVerifyContentQuery() throws Exception {
         verifyResultContent(getQueryFolderPrefix() + "src/test/resources/query/sql_verifyContent");
@@ -245,11 +244,6 @@ public class ITKylinQueryTest extends KylinTestBase {
     }
 
     @Test
-    public void testTimeStampAdd() throws Exception {
-        execAndCompQuery(getQueryFolderPrefix() + "src/test/resources/query/sql_timestamp", null, true);
-    }
-
-    @Test
     public void testCachedQuery() throws Exception {
         execAndCompQuery(getQueryFolderPrefix() + "src/test/resources/query/sql_cache", null, true);
     }
@@ -264,6 +258,11 @@ public class ITKylinQueryTest extends KylinTestBase {
         if ("left".equalsIgnoreCase(joinType)) {
             batchExecuteQuery(getQueryFolderPrefix() + "src/test/resources/query/sql_distinct");
         }
+    }
+
+    @Test
+    public void testComputedColumnsQuery() throws Exception {
+        execAndCompQuery(getQueryFolderPrefix() + "src/test/resources/query/sql_computedcolumn", null, true, CompareQueryBySuffix.INSTANCE);
     }
 
     @Test
@@ -362,8 +361,7 @@ public class ITKylinQueryTest extends KylinTestBase {
 
     @Test
     public void testLimitEnabled() throws Exception {
-        List<File> sqlFiles = getFilesFromFolder(
-                new File(getQueryFolderPrefix() + "src/test/resources/query/sql_limit"), ".sql");
+        List<File> sqlFiles = getFilesFromFolder(new File(getQueryFolderPrefix() + "src/test/resources/query/sql_limit"), ".sql");
         for (File sqlFile : sqlFiles) {
             runSQL(sqlFile, false, false);
             assertTrue(checkFinalPushDownLimit());
@@ -414,5 +412,4 @@ public class ITKylinQueryTest extends KylinTestBase {
     public void testPercentileQuery() throws Exception {
         batchExecuteQuery(getQueryFolderPrefix() + "src/test/resources/query/sql_percentile");
     }
-
 }

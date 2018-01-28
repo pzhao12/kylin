@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.kylin.common.QueryContextFacade;
 import org.apache.kylin.common.util.Pair;
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
@@ -35,11 +34,9 @@ import org.apache.kylin.cube.RawQueryLastHacker;
 import org.apache.kylin.cube.cuboid.Cuboid;
 import org.apache.kylin.cube.model.CubeDesc;
 import org.apache.kylin.cube.model.CubeDesc.DeriveInfo;
-import org.apache.kylin.cube.model.RowKeyColDesc;
 import org.apache.kylin.dict.lookup.LookupStringTable;
 import org.apache.kylin.gridtable.StorageLimitLevel;
 import org.apache.kylin.measure.MeasureType;
-import org.apache.kylin.measure.bitmap.BitmapMeasureType;
 import org.apache.kylin.metadata.filter.CaseTupleFilter;
 import org.apache.kylin.metadata.filter.ColumnTupleFilter;
 import org.apache.kylin.metadata.filter.CompareTupleFilter;
@@ -69,8 +66,8 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
 
     private static final Logger logger = LoggerFactory.getLogger(GTCubeStorageQueryBase.class);
 
-    protected CubeInstance cubeInstance;
-    protected CubeDesc cubeDesc;
+    protected final CubeInstance cubeInstance;
+    protected final CubeDesc cubeDesc;
 
     public GTCubeStorageQueryBase(CubeInstance cube) {
         this.cubeInstance = cube;
@@ -103,7 +100,7 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
                 request.getGroups(), request.getMetrics(), returnTupleInfo, request.getContext(), sqlDigest);
     }
 
-    public GTCubeStorageQueryRequest getStorageQueryRequest(StorageContext context, SQLDigest sqlDigest,
+    protected GTCubeStorageQueryRequest getStorageQueryRequest(StorageContext context, SQLDigest sqlDigest,
             TupleInfo returnTupleInfo) {
         context.setStorageQuery(this);
 
@@ -144,7 +141,7 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
 
         // exactAggregation mean: needn't aggregation at storage and query engine both.
         boolean exactAggregation = isExactAggregation(context, cuboid, groups, otherDimsD, singleValuesD,
-                derivedPostAggregation, sqlDigest.aggregations, sqlDigest.aggrSqlCalls);
+                derivedPostAggregation, sqlDigest.aggregations);
         context.setExactAggregation(exactAggregation);
 
         // replace derived columns in filter with host columns; columns on loosened condition must be added to group by
@@ -153,15 +150,14 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
         TupleFilter filterD = translateDerived(filter, loosenedColumnD);
         groupsD.addAll(loosenedColumnD);
         TupleFilter.collectColumns(filterD, filterColumnD);
-        context.setFilterMask(getQueryFilterMask(filterColumnD));
 
         // set limit push down
         enableStorageLimitIfPossible(cuboid, groups, derivedPostAggregation, groupsD, filterD, loosenedColumnD,
                 sqlDigest.aggregations, context);
         // set whether to aggregate results from multiple partitions
         enableStreamAggregateIfBeneficial(cuboid, groupsD, context);
-        // check query deadline
-        QueryContextFacade.current().checkMillisBeforeDeadline();
+        // set query deadline
+        context.setDeadline(cubeInstance);
 
         // push down having clause filter if possible
         TupleFilter havingFilter = checkHavingCanPushDown(sqlDigest.havingFilter, groupsD, sqlDigest.aggregations,
@@ -179,7 +175,7 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
     protected abstract String getGTStorage();
 
     protected Cuboid findCuboid(CubeInstance cubeInstance, Set<TblColRef> dimensionsD, Set<FunctionDesc> metrics) {
-        return Cuboid.findCuboid(cubeInstance.getCuboidScheduler(), dimensionsD, metrics);
+        return Cuboid.identifyCuboid(cubeInstance, dimensionsD, metrics);
     }
 
     protected ITupleConverter newCubeTupleConverter(CubeSegment cubeSeg, Cuboid cuboid,
@@ -233,18 +229,36 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
     }
 
     @SuppressWarnings("unchecked")
-    protected Set<TblColRef> findSingleValueColumns(TupleFilter filter) {
-        Set<CompareTupleFilter> compareTupleFilterSet = findSingleValuesCompFilters(filter);
+    private Set<TblColRef> findSingleValueColumns(TupleFilter filter) {
+        Collection<? extends TupleFilter> toCheck;
+        if (filter instanceof CompareTupleFilter) {
+            toCheck = Collections.singleton(filter);
+        } else if (filter instanceof LogicalTupleFilter && filter.getOperator() == FilterOperatorEnum.AND) {
+            toCheck = filter.getChildren();
+        } else {
+            return (Set<TblColRef>) Collections.EMPTY_SET;
+        }
+
+        Set<TblColRef> result = Sets.newHashSet();
+        for (TupleFilter f : toCheck) {
+            if (f instanceof CompareTupleFilter) {
+                CompareTupleFilter compFilter = (CompareTupleFilter) f;
+                // is COL=const ?
+                if (compFilter.getOperator() == FilterOperatorEnum.EQ && compFilter.getValues().size() == 1
+                        && compFilter.getColumn() != null) {
+                    result.add(compFilter.getColumn());
+                }
+            }
+        }
 
         // expand derived
         Set<TblColRef> resultD = Sets.newHashSet();
-        for (CompareTupleFilter compFilter : compareTupleFilterSet) {
-            TblColRef tblColRef = compFilter.getColumn();
-            if (cubeDesc.isExtendedColumn(tblColRef)) {
-                throw new CubeDesc.CannotFilterExtendedColumnException(tblColRef);
+        for (TblColRef col : result) {
+            if (cubeDesc.isExtendedColumn(col)) {
+                throw new CubeDesc.CannotFilterExtendedColumnException(col);
             }
-            if (cubeDesc.isDerived(compFilter.getColumn())) {
-                DeriveInfo hostInfo = cubeDesc.getHostInfo(tblColRef);
+            if (cubeDesc.isDerived(col)) {
+                DeriveInfo hostInfo = cubeDesc.getHostInfo(col);
                 if (hostInfo.isOneToOne) {
                     for (TblColRef hostCol : hostInfo.columns) {
                         resultD.add(hostCol);
@@ -252,51 +266,10 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
                 }
                 //if not one2one, it will be pruned
             } else {
-                resultD.add(compFilter.getColumn());
+                resultD.add(col);
             }
         }
         return resultD;
-    }
-
-    // FIXME should go into nested AND expression
-    protected Set<CompareTupleFilter> findSingleValuesCompFilters(TupleFilter filter) {
-        Collection<? extends TupleFilter> toCheck;
-        if (filter instanceof CompareTupleFilter) {
-            toCheck = Collections.singleton(filter);
-        } else if (filter instanceof LogicalTupleFilter && filter.getOperator() == FilterOperatorEnum.AND) {
-            toCheck = filter.getChildren();
-        } else {
-            return (Set<CompareTupleFilter>) Collections.EMPTY_SET;
-        }
-
-        Set<CompareTupleFilter> result = Sets.newHashSet();
-        for (TupleFilter f : toCheck) {
-            if (f instanceof CompareTupleFilter) {
-                CompareTupleFilter compFilter = (CompareTupleFilter) f;
-                // is COL=const ?
-                if (compFilter.getOperator() == FilterOperatorEnum.EQ && compFilter.getValues().size() == 1
-                        && compFilter.getColumn() != null) {
-                    result.add(compFilter);
-                }
-            }
-        }
-        return result;
-    }
-
-    private long getQueryFilterMask(Set<TblColRef> filterColumnD) {
-        long filterMask = 0;
-
-        logger.info("Filter column set for query: " + filterColumnD.toString());
-        if (filterColumnD.size() != 0) {
-            RowKeyColDesc[] allColumns = cubeDesc.getRowkey().getRowKeyColumns();
-            for (int i = 0; i < allColumns.length; i++) {
-                if (filterColumnD.contains(allColumns[i].getColRef())) {
-                    filterMask |= 1L << allColumns[i].getBitIndex();
-                }
-            }
-        }
-        logger.info("Filter mask is: " + filterMask);
-        return filterMask;
     }
 
     public boolean isNeedStorageAggregation(Cuboid cuboid, Collection<TblColRef> groupD,
@@ -363,8 +336,7 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
             return compf;
 
         DeriveInfo hostInfo = cubeDesc.getHostInfo(derived);
-        LookupStringTable lookup = cubeDesc.getHostInfo(derived).type == CubeDesc.DeriveType.PK_FK ? null
-                : getLookupStringTableForDerived(derived, hostInfo);
+        LookupStringTable lookup = getLookupStringTableForDerived(derived, hostInfo);
         Pair<TupleFilter, Boolean> translated = DerivedFilterTranslator.translate(lookup, hostInfo, compf);
         TupleFilter translatedFilter = translated.getFirst();
         boolean loosened = translated.getSecond();
@@ -491,10 +463,9 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
             List<FunctionDesc> aggregations, Set<FunctionDesc> metrics) {
         // must have only one segment
         Segments<CubeSegment> readySegs = cubeInstance.getSegments(SegmentStatusEnum.READY);
-        if (readySegs.size() != 1) {
-            logger.info("Can not push down having filter, must have only one segment");
+        if (readySegs.size() != 1)
             return null;
-        }
+
         // sharded-by column must on group by
         CubeDesc desc = cubeInstance.getDescriptor();
         Set<TblColRef> shardBy = desc.getShardByColumns();
@@ -527,7 +498,7 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
 
     private boolean isExactAggregation(StorageContext context, Cuboid cuboid, Collection<TblColRef> groups,
             Set<TblColRef> othersD, Set<TblColRef> singleValuesD, Set<TblColRef> derivedPostAggregation,
-            Collection<FunctionDesc> functionDescs, List<SQLDigest.SQLCall> aggrSQLCalls) {
+            Collection<FunctionDesc> functionDescs) {
         if (context.isNeedStorageAggregation()) {
             logger.info("exactAggregation is false because need storage aggregation");
             return false;
@@ -556,12 +527,6 @@ public abstract class GTCubeStorageQueryBase implements IStorageQuery {
         for (FunctionDesc functionDesc : functionDescs) {
             if (functionDesc.isDimensionAsMetric()) {
                 logger.info("exactAggregation is false because has DimensionAsMetric");
-                return false;
-            }
-        }
-        for (SQLDigest.SQLCall aggrSQLCall : aggrSQLCalls) {
-            if (aggrSQLCall.function.equals(BitmapMeasureType.FUNC_INTERSECT_COUNT_DISTINCT)) {
-                logger.info("exactAggregation is false because has INTERSECT_COUNT");
                 return false;
             }
         }

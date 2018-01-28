@@ -6,55 +6,45 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
+ * 
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+*/
 
 package org.apache.kylin.rest.controller;
 
+import static org.apache.kylin.rest.service.CubeService.VALID_CUBENAME;
+
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
-
-import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.kylin.common.util.JsonUtil;
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
 import org.apache.kylin.cube.CubeSegment;
-import org.apache.kylin.cube.cuboid.CuboidScheduler;
-import org.apache.kylin.cube.cuboid.TreeCuboidScheduler;
 import org.apache.kylin.cube.model.CubeBuildTypeEnum;
 import org.apache.kylin.cube.model.CubeDesc;
-import org.apache.kylin.cube.model.CubeJoinedFlatTableDesc;
-import org.apache.kylin.cube.model.RowKeyColDesc;
 import org.apache.kylin.dimension.DimensionEncodingFactory;
 import org.apache.kylin.engine.EngineFactory;
-import org.apache.kylin.engine.mr.common.CuboidStatsReaderUtil;
 import org.apache.kylin.job.JobInstance;
 import org.apache.kylin.job.JoinedFlatTable;
-import org.apache.kylin.job.exception.JobException;
 import org.apache.kylin.metadata.model.IJoinedFlatTableDesc;
 import org.apache.kylin.metadata.model.ISourceAware;
 import org.apache.kylin.metadata.model.SegmentRange;
 import org.apache.kylin.metadata.model.SegmentRange.TSRange;
 import org.apache.kylin.metadata.project.ProjectInstance;
 import org.apache.kylin.metadata.realization.RealizationStatusEnum;
-import org.apache.kylin.metrics.MetricsManager;
-import org.apache.kylin.metrics.property.QueryCubePropertyEnum;
 import org.apache.kylin.rest.exception.BadRequestException;
 import org.apache.kylin.rest.exception.ForbiddenException;
 import org.apache.kylin.rest.exception.InternalErrorException;
@@ -62,19 +52,11 @@ import org.apache.kylin.rest.exception.NotFoundException;
 import org.apache.kylin.rest.request.CubeRequest;
 import org.apache.kylin.rest.request.JobBuildRequest;
 import org.apache.kylin.rest.request.JobBuildRequest2;
-import org.apache.kylin.rest.request.JobOptimizeRequest;
-import org.apache.kylin.rest.request.SQLRequest;
-import org.apache.kylin.rest.response.CubeInstanceResponse;
-import org.apache.kylin.rest.response.CuboidTreeResponse;
-import org.apache.kylin.rest.response.EnvelopeResponse;
 import org.apache.kylin.rest.response.GeneralResponse;
 import org.apache.kylin.rest.response.HBaseResponse;
-import org.apache.kylin.rest.response.ResponseCode;
 import org.apache.kylin.rest.service.CubeService;
 import org.apache.kylin.rest.service.JobService;
 import org.apache.kylin.rest.service.ProjectService;
-import org.apache.kylin.rest.service.QueryService;
-import org.apache.kylin.rest.util.ValidateUtil;
 import org.apache.kylin.source.kafka.util.KafkaClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,9 +75,9 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 /**
  * CubeController is defined as Restful API entrance for UI.
@@ -117,46 +99,28 @@ public class CubeController extends BasicController {
     @Qualifier("projectService")
     private ProjectService projectService;
 
-    @Autowired
-    @Qualifier("queryService")
-    private QueryService queryService;
-
-    @RequestMapping(value = "/validate/{cubeName}", method = RequestMethod.GET, produces = { "application/json" })
-    @ResponseBody
-    public EnvelopeResponse<Boolean> validateModelName(@PathVariable String cubeName) {
-        return new EnvelopeResponse<>(ResponseCode.CODE_SUCCESS, cubeService.isCubeNameVaildate(cubeName), "");
-    }
-
     @RequestMapping(value = "", method = { RequestMethod.GET }, produces = { "application/json" })
     @ResponseBody
-    public List<CubeInstanceResponse> getCubes(@RequestParam(value = "cubeName", required = false) String cubeName,
+    public List<CubeInstance> getCubes(@RequestParam(value = "cubeName", required = false) String cubeName,
             @RequestParam(value = "modelName", required = false) String modelName,
             @RequestParam(value = "projectName", required = false) String projectName,
             @RequestParam(value = "limit", required = false) Integer limit,
             @RequestParam(value = "offset", required = false) Integer offset) {
-        List<CubeInstance> cubes = cubeService.listAllCubes(cubeName, projectName, modelName, true);
+        List<CubeInstance> cubes;
+        cubes = cubeService.listAllCubes(cubeName, projectName, modelName, true);
 
-        List<CubeInstanceResponse> response = Lists.newArrayListWithExpectedSize(cubes.size());
-        for (CubeInstance cube : cubes) {
-            try {
-                response.add(cubeService.createCubeInstanceResponse(cube));
-            } catch (Exception e) {
-                logger.error("Error creating cube instance response, skipping.", e);
-            }
-        }
-
-        int climit = (null == limit) ? response.size() : limit;
+        int climit = (null == limit) ? cubes.size() : limit;
         int coffset = (null == offset) ? 0 : offset;
 
-        if (response.size() <= coffset) {
+        if (cubes.size() <= coffset) {
             return Collections.emptyList();
         }
 
-        if ((response.size() - coffset) < climit) {
-            return response.subList(coffset, response.size());
+        if ((cubes.size() - coffset) < climit) {
+            return cubes.subList(coffset, cubes.size());
         }
 
-        return response.subList(coffset, coffset + climit);
+        return cubes.subList(coffset, coffset + climit);
     }
 
     @RequestMapping(value = "validEncodings", method = { RequestMethod.GET }, produces = { "application/json" })
@@ -183,34 +147,11 @@ public class CubeController extends BasicController {
     }
 
     /**
-     * Get SQL of a Cube
+     * Get hive SQL of the cube
      *
      * @param cubeName Cube Name
      * @return
-     * @throws IOException
-     */
-    @RequestMapping(value = "/{cubeName}/sql", method = { RequestMethod.GET }, produces = { "application/json" })
-    @ResponseBody
-    public GeneralResponse getSql(@PathVariable String cubeName) {
-        CubeInstance cube = cubeService.getCubeManager().getCube(cubeName);
-        if (cube == null) {
-            throw new InternalErrorException("Cannot find cube " + cubeName);
-        }
-        IJoinedFlatTableDesc flatTableDesc = EngineFactory.getJoinedFlatTableDesc(cube.getDescriptor());
-        String sql = JoinedFlatTable.generateSelectDataStatement(flatTableDesc);
-
-        GeneralResponse response = new GeneralResponse();
-        response.setProperty("sql", sql);
-
-        return response;
-    }
-
-    /**
-     * Get SQL of a Cube segment
-     *
-     * @param cubeName    Cube Name
-     * @param segmentName Segment Name
-     * @return
+     * @throws UnknownHostException
      * @throws IOException
      */
     @RequestMapping(value = "/{cubeName}/segs/{segmentName}/sql", method = { RequestMethod.GET }, produces = {
@@ -218,7 +159,7 @@ public class CubeController extends BasicController {
     @ResponseBody
     public GeneralResponse getSql(@PathVariable String cubeName, @PathVariable String segmentName) {
         CubeInstance cube = cubeService.getCubeManager().getCube(cubeName);
-        IJoinedFlatTableDesc flatTableDesc = new CubeJoinedFlatTableDesc(cube.getDescriptor(), true);
+        IJoinedFlatTableDesc flatTableDesc = EngineFactory.getJoinedFlatTableDesc(cube.getDescriptor());
         String sql = JoinedFlatTable.generateSelectDataStatement(flatTableDesc);
 
         GeneralResponse response = new GeneralResponse();
@@ -318,9 +259,7 @@ public class CubeController extends BasicController {
         }
     }
 
-    /**
-     * Build/Rebuild a cube segment
-     */
+    /** Build/Rebuild a cube segment */
     @RequestMapping(value = "/{cubeName}/build", method = { RequestMethod.PUT }, produces = { "application/json" })
     @ResponseBody
     public JobInstance build(@PathVariable String cubeName, @RequestBody JobBuildRequest req) {
@@ -329,19 +268,15 @@ public class CubeController extends BasicController {
 
     /** Build/Rebuild a cube segment */
 
-    /**
-     * Build/Rebuild a cube segment
-     */
+    /** Build/Rebuild a cube segment */
     @RequestMapping(value = "/{cubeName}/rebuild", method = { RequestMethod.PUT }, produces = { "application/json" })
     @ResponseBody
     public JobInstance rebuild(@PathVariable String cubeName, @RequestBody JobBuildRequest req) {
-        return buildInternal(cubeName, new TSRange(req.getStartTime(), req.getEndTime()), null, null, null,
+        return buildInternal(cubeName, new TSRange(req.getStartTime(), req.getEndTime()), null, null, null, 
                 req.getBuildType(), req.isForce() || req.isForceMergeEmptySegment());
     }
 
-    /**
-     * Build/Rebuild a cube segment by source offset
-     */
+    /** Build/Rebuild a cube segment by source offset */
     @RequestMapping(value = "/{cubeName}/build2", method = { RequestMethod.PUT }, produces = { "application/json" })
     @ResponseBody
     public JobInstance build2(@PathVariable String cubeName, @RequestBody JobBuildRequest2 req) {
@@ -360,9 +295,7 @@ public class CubeController extends BasicController {
         return rebuild2(cubeName, req);
     }
 
-    /**
-     * Build/Rebuild a cube segment by source offset
-     */
+    /** Build/Rebuild a cube segment by source offset */
     @RequestMapping(value = "/{cubeName}/rebuild2", method = { RequestMethod.PUT }, produces = { "application/json" })
     @ResponseBody
     public JobInstance rebuild2(@PathVariable String cubeName, @RequestBody JobBuildRequest2 req) {
@@ -386,67 +319,6 @@ public class CubeController extends BasicController {
         } catch (Throwable e) {
             logger.error(e.getLocalizedMessage(), e);
             throw new InternalErrorException(e.getLocalizedMessage(), e);
-        }
-    }
-
-    /**
-     * Send a optimize cube job
-     *
-     * @param cubeName Cube ID
-     * @return JobInstance of CheckpointExecutable
-     */
-    @RequestMapping(value = "/{cubeName}/optimize", method = { RequestMethod.PUT })
-    @ResponseBody
-    public JobInstance optimize(@PathVariable String cubeName, @RequestBody JobOptimizeRequest jobOptimizeRequest) {
-        try {
-            String submitter = SecurityContextHolder.getContext().getAuthentication().getName();
-            CubeInstance cube = jobService.getCubeManager().getCube(cubeName);
-
-            if (cube == null) {
-                throw new InternalErrorException("Cannot find cube " + cubeName);
-            }
-            logger.info("cuboid recommend:" + jobOptimizeRequest.getCuboidsRecommend());
-            return jobService.submitOptimizeJob(cube, jobOptimizeRequest.getCuboidsRecommend(), submitter).getFirst();
-        } catch (BadRequestException e) {
-            logger.error(e.getLocalizedMessage(), e);
-            throw e;
-        } catch (JobException e) {
-            logger.error(e.getLocalizedMessage(), e);
-            throw new BadRequestException(e.getLocalizedMessage());
-        } catch (Exception e) {
-            logger.error(e.getLocalizedMessage(), e);
-            throw new InternalErrorException(e.getLocalizedMessage());
-        }
-    }
-
-    /**
-     * Send a optimize cube segment job
-     *
-     * @param cubeName  Cube ID
-     * @param segmentID for segment to be optimized
-     */
-    @RequestMapping(value = "/{cubeName}/recover_segment_optimize/{segmentID}", method = { RequestMethod.PUT })
-    @ResponseBody
-    public JobInstance recoverSegmentOptimize(@PathVariable String cubeName, @PathVariable String segmentID) {
-        try {
-            String submitter = SecurityContextHolder.getContext().getAuthentication().getName();
-            CubeInstance cube = jobService.getCubeManager().getCube(cubeName);
-            if (cube == null) {
-                throw new InternalErrorException("Cannot find cube " + cubeName);
-            }
-
-            CubeSegment segment = cube.getSegmentById(segmentID);
-            if (segment == null) {
-                throw new InternalErrorException("Cannot find segment '" + segmentID + "'");
-            }
-
-            return jobService.submitRecoverSegmentOptimizeJob(segment, submitter);
-        } catch (JobException e) {
-            logger.error(e.getLocalizedMessage(), e);
-            throw new BadRequestException(e.getLocalizedMessage());
-        } catch (Exception e) {
-            logger.error(e.getLocalizedMessage(), e);
-            throw new InternalErrorException(e.getLocalizedMessage());
         }
     }
 
@@ -504,17 +376,14 @@ public class CubeController extends BasicController {
         if (cube.getStatus() == RealizationStatusEnum.DESCBROKEN) {
             throw new BadRequestException("Broken cube can't be cloned");
         }
-        if (!ValidateUtil.isAlphanumericUnderscore(newCubeName)) {
-            throw new BadRequestException("Invalid Cube name, only letters, numbers and underscore supported.");
+        if (!StringUtils.containsOnly(newCubeName, VALID_CUBENAME)) {
+            logger.info("Invalid Cube name {}, only letters, numbers and underline supported.", newCubeName);
+            throw new BadRequestException("Invalid Cube name, only letters, numbers and underline supported.");
         }
 
         ProjectInstance project = cubeService.getProjectManager().getProject(projectName);
         if (project == null) {
             throw new BadRequestException("Project " + projectName + " doesn't exist");
-        }
-        // KYLIN-1925, forbid cloning cross projects
-        if (!project.getName().equals(cube.getProject())) {
-            throw new BadRequestException("Cloning cubes across projects is not supported.");
         }
 
         CubeDesc cubeDesc = cube.getDescriptor();
@@ -544,8 +413,6 @@ public class CubeController extends BasicController {
             if (null == cube) {
                 throw new InternalErrorException("Cannot find cube " + cubeName);
             }
-
-            cubeService.checkEnableCubeCondition(cube);
 
             return cubeService.enableCube(cube);
         } catch (Exception e) {
@@ -594,8 +461,9 @@ public class CubeController extends BasicController {
             logger.info("Cube name should not be empty.");
             throw new BadRequestException("Cube name should not be empty.");
         }
-        if (!ValidateUtil.isAlphanumericUnderscore(name)) {
-            throw new BadRequestException("Invalid Cube name, only letters, numbers and underscore supported.");
+        if (!StringUtils.containsOnly(name, VALID_CUBENAME)) {
+            logger.info("Invalid Cube name {}, only letters, numbers and underline supported.", name);
+            throw new BadRequestException("Invalid Cube name, only letters, numbers and underline supported.");
         }
 
         try {
@@ -668,8 +536,8 @@ public class CubeController extends BasicController {
             throw new InternalErrorException("Failed to deal with the request: " + e.getLocalizedMessage());
         }
 
-        if (desc.isBroken()) {
-            updateRequest(cubeRequest, false, desc.getErrorsAsString());
+        if (!desc.getError().isEmpty()) {
+            updateRequest(cubeRequest, false, Joiner.on("\n").join(desc.getError()));
             return cubeRequest;
         }
 
@@ -797,176 +665,9 @@ public class CubeController extends BasicController {
 
     }
 
-    @RequestMapping(value = "/{cubeName}/cuboids/export", method = RequestMethod.GET)
-    @ResponseBody
-    public void cuboidsExport(@PathVariable String cubeName, @RequestParam(value = "top") Integer top,
-            HttpServletResponse response) throws IOException {
-        CubeInstance cube = cubeService.getCubeManager().getCube(cubeName);
-        if (cube == null) {
-            throw new BadRequestException("Cube: [" + cubeName + "] not exist.");
-        }
-
-        Map<Long, Long> cuboidList = getRecommendCuboidList(cube);
-        List<Set<String>> dimensionSetList = Lists.newLinkedList();
-
-        if (cuboidList == null || cuboidList.isEmpty()) {
-            logger.info("Cannot get recommended cuboid list for cube " + cubeName);
-        } else {
-            if (cuboidList.size() < top) {
-                logger.info("Require " + top + " recommended cuboids, but only " + cuboidList.size() + " is found.");
-            }
-            Iterator<Long> cuboidIterator = cuboidList.keySet().iterator();
-            RowKeyColDesc[] rowKeyColDescList = cube.getDescriptor().getRowkey().getRowKeyColumns();
-
-            while (top-- > 0 && cuboidIterator.hasNext()) {
-                Set<String> dimensionSet = Sets.newHashSet();
-                dimensionSetList.add(dimensionSet);
-                long cuboid = cuboidIterator.next();
-                for (int i = 0; i < rowKeyColDescList.length; i++) {
-                    if ((cuboid & (1L << rowKeyColDescList[i].getBitIndex())) > 0) {
-                        dimensionSet.add(rowKeyColDescList[i].getColumn());
-                    }
-                }
-            }
-        }
-
-        response.setContentType("text/json;charset=utf-8");
-        response.setHeader("Content-Disposition", "attachment; filename=\"" + cubeName + ".json\"");
-        try (PrintWriter writer = response.getWriter()) {
-            writer.write(JsonUtil.writeValueAsString(dimensionSetList));
-        } catch (IOException e) {
-            logger.error("", e);
-            throw new InternalErrorException("Failed to write: " + e.getLocalizedMessage());
-        }
-    }
-
-    @RequestMapping(value = "/{cubeName}/cuboids/current", method = RequestMethod.GET)
-    @ResponseBody
-    public CuboidTreeResponse getCurrentCuboids(@PathVariable String cubeName) {
-        CubeInstance cube = cubeService.getCubeManager().getCube(cubeName);
-        if (cube == null) {
-            logger.error("Get cube: [" + cubeName + "] failed when get current cuboids");
-            throw new BadRequestException("Get cube: [" + cubeName + "] failed when get current cuboids");
-        }
-        // The cuboid tree displayed should be consistent with the current one
-        CuboidScheduler cuboidScheduler = cube.getCuboidScheduler();
-        Map<Long, Long> cuboidStatsMap = cube.getCuboids();
-        if (cuboidStatsMap == null) {
-            cuboidStatsMap = CuboidStatsReaderUtil.readCuboidStatsFromCube(cuboidScheduler.getAllCuboidIds(), cube);
-        }
-
-        Map<Long, Long> hitFrequencyMap = null;
-        Map<Long, Long> queryMatchMap = null;
-        try {
-            hitFrequencyMap = getTargetCuboidHitFrequency(cubeName);
-            queryMatchMap = getCuboidQueryMatchCount(cubeName);
-        } catch (Exception e) {
-            logger.warn("Fail to query on system cube due to " + e);
-        }
-
-        Set<Long> currentCuboidSet = cube.getCuboidScheduler().getAllCuboidIds();
-        return cubeService.getCuboidTreeResponse(cuboidScheduler, cuboidStatsMap, hitFrequencyMap, queryMatchMap,
-                currentCuboidSet);
-    }
-
-    @RequestMapping(value = "/{cubeName}/cuboids/recommend", method = RequestMethod.GET)
-    @ResponseBody
-    public CuboidTreeResponse getRecommendCuboids(@PathVariable String cubeName) throws IOException {
-        CubeInstance cube = cubeService.getCubeManager().getCube(cubeName);
-        if (cube == null) {
-            logger.error("Get cube: [" + cubeName + "] failed when get recommend cuboids");
-            throw new BadRequestException("Get cube: [" + cubeName + "] failed when get recommend cuboids");
-        }
-        Map<Long, Long> recommendCuboidStatsMap = getRecommendCuboidList(cube);
-        if (recommendCuboidStatsMap == null || recommendCuboidStatsMap.isEmpty()) {
-            return new CuboidTreeResponse();
-        }
-        CuboidScheduler cuboidScheduler = new TreeCuboidScheduler(cube.getDescriptor(),
-                Lists.newArrayList(recommendCuboidStatsMap.keySet()),
-                new TreeCuboidScheduler.CuboidCostComparator(recommendCuboidStatsMap));
-
-        // Get cuboid target info for displaying heat map of cuboid hit
-        Map<Long, Long> displayHitFrequencyMap = getTargetCuboidHitFrequency(cubeName);
-        // Get exactly matched cuboid query count
-        Map<Long, Long> queryMatchMap = getCuboidQueryMatchCount(cubeName);
-
-        Set<Long> currentCuboidSet = cube.getCuboidScheduler().getAllCuboidIds();
-        return cubeService.getCuboidTreeResponse(cuboidScheduler, recommendCuboidStatsMap, displayHitFrequencyMap,
-                queryMatchMap, currentCuboidSet);
-    }
-
-    private Map<Long, Long> getRecommendCuboidList(CubeInstance cube) throws IOException {
-        // Get cuboid source info
-        Map<Long, Long> optimizeHitFrequencyMap = getSourceCuboidHitFrequency(cube.getName());
-        Map<Long, Map<Long, Long>> rollingUpCountSourceMap = getCuboidRollingUpCount(cube.getName());
-        return cubeService.getRecommendCuboidStatistics(cube, optimizeHitFrequencyMap, rollingUpCountSourceMap);
-    }
-
-    private Map<Long, Long> getSourceCuboidHitFrequency(String cubeName) {
-        return getCuboidHitFrequency(cubeName, true);
-    }
-
-    private Map<Long, Long> getTargetCuboidHitFrequency(String cubeName) {
-        return getCuboidHitFrequency(cubeName, false);
-    }
-
-    private Map<Long, Long> getCuboidHitFrequency(String cubeName, boolean isCuboidSource) {
-        SQLRequest sqlRequest = new SQLRequest();
-        sqlRequest.setProject(MetricsManager.SYSTEM_PROJECT);
-        String cuboidColumn = QueryCubePropertyEnum.CUBOID_SOURCE.toString();
-        if (!isCuboidSource) {
-            cuboidColumn = QueryCubePropertyEnum.CUBOID_TARGET.toString();
-        }
-        String hitMeasure = QueryCubePropertyEnum.WEIGHT_PER_HIT.toString();
-        String table = cubeService.getMetricsManager()
-                .getSystemTableFromSubject(cubeService.getConfig().getKylinMetricsSubjectQueryCube());
-        String sql = "select " + cuboidColumn + ", sum(" + hitMeasure + ") " //
-                + "from " + table//
-                + " where " + QueryCubePropertyEnum.CUBE.toString() + " = '" + cubeName + "' " //
-                + "group by " + cuboidColumn;
-        sqlRequest.setSql(sql);
-        List<List<String>> orgHitFrequency = queryService.doQueryWithCache(sqlRequest).getResults();
-        return cubeService.formatQueryCount(orgHitFrequency);
-    }
-
-    private Map<Long, Map<Long, Long>> getCuboidRollingUpCount(String cubeName) {
-        SQLRequest sqlRequest = new SQLRequest();
-        sqlRequest.setProject(MetricsManager.SYSTEM_PROJECT);
-        String cuboidSource = QueryCubePropertyEnum.CUBOID_SOURCE.toString();
-        String cuboidTarget = QueryCubePropertyEnum.CUBOID_TARGET.toString();
-        String aggCount = QueryCubePropertyEnum.AGGR_COUNT.toString();
-        String table = cubeService.getMetricsManager()
-                .getSystemTableFromSubject(cubeService.getConfig().getKylinMetricsSubjectQueryCube());
-        String sql = "select " + cuboidSource + ", " + cuboidTarget + ", sum(" + aggCount + ")/count(*) " //
-                + "from " + table //
-                + " where " + QueryCubePropertyEnum.CUBE.toString() + " = '" + cubeName + "' " //
-                + "group by " + cuboidSource + ", " + cuboidTarget;
-        sqlRequest.setSql(sql);
-        List<List<String>> orgRollingUpCount = queryService.doQueryWithCache(sqlRequest).getResults();
-        return cubeService.formatRollingUpCount(orgRollingUpCount);
-    }
-
-    private Map<Long, Long> getCuboidQueryMatchCount(String cubeName) {
-        SQLRequest sqlRequest = new SQLRequest();
-        sqlRequest.setProject(MetricsManager.SYSTEM_PROJECT);
-        String cuboidSource = QueryCubePropertyEnum.CUBOID_SOURCE.toString();
-        String hitMeasure = QueryCubePropertyEnum.WEIGHT_PER_HIT.toString();
-        String table = cubeService.getMetricsManager()
-                .getSystemTableFromSubject(cubeService.getConfig().getKylinMetricsSubjectQueryCube());
-        String sql = "select " + cuboidSource + ", sum(" + hitMeasure + ") " //
-                + "from " + table //
-                + " where " + QueryCubePropertyEnum.CUBE.toString() + " = '" + cubeName + "' and "
-                + QueryCubePropertyEnum.IF_MATCH.toString() + " = true " //
-                + "group by " + cuboidSource;
-        sqlRequest.setSql(sql);
-        List<List<String>> orgMatchHitFrequency = queryService.doQueryWithCache(sqlRequest).getResults();
-        return cubeService.formatQueryCount(orgMatchHitFrequency);
-    }
-
     /**
      * Initiate the very beginning of a streaming cube. Will seek the latest offests of each partition from streaming
      * source (kafka) and record in the cube descriptor; In the first build job, it will use these offests as the start point.
-     *
      * @param cubeName
      * @return
      */
@@ -1030,13 +731,6 @@ public class CubeController extends BasicController {
         }
     }
 
-    @RequestMapping(value = "/{cube}/{project}/migrate", method = { RequestMethod.POST })
-    @ResponseBody
-    public void migrateCube(@PathVariable String cube, @PathVariable String project) {
-        CubeInstance cubeInstance = cubeService.getCubeManager().getCube(cube);
-        cubeService.migrateCube(cubeInstance, project);
-    }
-
     public void setCubeService(CubeService cubeService) {
         this.cubeService = cubeService;
     }
@@ -1044,4 +738,5 @@ public class CubeController extends BasicController {
     public void setJobService(JobService jobService) {
         this.jobService = jobService;
     }
+
 }

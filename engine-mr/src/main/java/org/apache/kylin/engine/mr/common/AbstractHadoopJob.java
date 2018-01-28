@@ -24,15 +24,14 @@ package org.apache.kylin.engine.mr.common;
  */
 
 import static org.apache.hadoop.util.StringUtils.formatTime;
-import static org.apache.kylin.engine.mr.common.JobRelatedMetaUtil.collectCubeMetadata;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -59,7 +58,6 @@ import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.kylin.common.KylinConfig;
-import org.apache.kylin.common.StorageURL;
 import org.apache.kylin.common.util.CliCommandExecutor;
 import org.apache.kylin.common.util.HadoopUtil;
 import org.apache.kylin.common.util.OptionsHelper;
@@ -100,8 +98,6 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
             .hasArg().isRequired(false).withDescription("Input format").create(BatchConstants.ARG_INPUT_FORMAT);
     protected static final Option OPTION_OUTPUT_PATH = OptionBuilder.withArgName(BatchConstants.ARG_OUTPUT).hasArg()
             .isRequired(true).withDescription("Output path").create(BatchConstants.ARG_OUTPUT);
-    protected static final Option OPTION_DICT_PATH = OptionBuilder.withArgName(BatchConstants.ARG_DICT_PATH).hasArg()
-            .isRequired(false).withDescription("Dict path").create(BatchConstants.ARG_DICT_PATH);
     protected static final Option OPTION_NCUBOID_LEVEL = OptionBuilder.withArgName(BatchConstants.ARG_LEVEL).hasArg()
             .isRequired(true).withDescription("N-Cuboid build level, e.g. 1, 2, 3...").create(BatchConstants.ARG_LEVEL);
     protected static final Option OPTION_PARTITION_FILE_PATH = OptionBuilder.withArgName(BatchConstants.ARG_PARTITION)
@@ -109,16 +105,14 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
     protected static final Option OPTION_HTABLE_NAME = OptionBuilder.withArgName(BatchConstants.ARG_HTABLE_NAME)
             .hasArg().isRequired(true).withDescription("HTable name").create(BatchConstants.ARG_HTABLE_NAME);
 
+    protected static final Option OPTION_STATISTICS_ENABLED = OptionBuilder
+            .withArgName(BatchConstants.ARG_STATS_ENABLED).hasArg().isRequired(false)
+            .withDescription("Statistics enabled").create(BatchConstants.ARG_STATS_ENABLED);
     protected static final Option OPTION_STATISTICS_OUTPUT = OptionBuilder.withArgName(BatchConstants.ARG_STATS_OUTPUT)
             .hasArg().isRequired(false).withDescription("Statistics output").create(BatchConstants.ARG_STATS_OUTPUT);
     protected static final Option OPTION_STATISTICS_SAMPLING_PERCENT = OptionBuilder
             .withArgName(BatchConstants.ARG_STATS_SAMPLING_PERCENT).hasArg().isRequired(false)
             .withDescription("Statistics sampling percentage").create(BatchConstants.ARG_STATS_SAMPLING_PERCENT);
-    protected static final Option OPTION_CUBOID_MODE = OptionBuilder.withArgName(BatchConstants.ARG_CUBOID_MODE)
-            .hasArg().isRequired(false).withDescription("Cuboid Mode").create(BatchConstants.ARG_CUBOID_MODE);
-    protected static final Option OPTION_NEED_UPDATE_BASE_CUBOID_SHARD = OptionBuilder
-            .withArgName(BatchConstants.ARG_UPDATE_SHARD).hasArg().isRequired(false)
-            .withDescription("If need to update base cuboid shard").create(BatchConstants.ARG_UPDATE_SHARD);
 
     private static final String MAP_REDUCE_CLASSPATH = "mapreduce.application.classpath";
 
@@ -267,13 +261,18 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
 
         // for KylinJobMRLibDir
         String mrLibDir = kylinConf.getKylinJobMRLibDir();
-        logger.trace("MR additional lib dir: " + mrLibDir);
         StringUtil.appendWithSeparator(kylinDependency, mrLibDir);
 
         setJobTmpJarsAndFiles(job, kylinDependency.toString());
+
+        overrideJobConfig(job.getConfiguration(), kylinConf.getMRConfigOverride());
     }
 
-
+    private void overrideJobConfig(Configuration jobConf, Map<String, String> override) {
+        for (Entry<String, String> entry : override.entrySet()) {
+            jobConf.set(entry.getKey(), entry.getValue());
+        }
+    }
 
     private String filterKylinHiveDependency(String kylinHiveDependency, KylinConfig config) {
         if (StringUtils.isBlank(kylinHiveDependency))
@@ -297,7 +296,7 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
         if (StringUtils.isBlank(kylinDependency))
             return;
 
-        logger.trace("setJobTmpJarsAndFiles: " + kylinDependency);
+        String[] fNameList = kylinDependency.split(",");
 
         try {
             Configuration jobConf = job.getConfiguration();
@@ -307,7 +306,7 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
             StringBuilder jarList = new StringBuilder();
             StringBuilder fileList = new StringBuilder();
 
-            for (String fileName : kylinDependency.split(",")) {
+            for (String fileName : fNameList) {
                 Path p = new Path(fileName);
                 if (p.isAbsolute() == false) {
                     logger.warn("The directory of kylin dependency '" + fileName + "' is not absolute, skip");
@@ -324,7 +323,6 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
                 }
 
                 if (fs.getFileStatus(p).isDirectory()) {
-                    logger.trace("Expanding depedency directory: " + p);
                     appendTmpDir(job, fs, p, jarList, fileList);
                     continue;
                 }
@@ -461,19 +459,11 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
             System.setProperty(KylinConfig.KYLIN_CONF, metaDir.getAbsolutePath());
             logger.info("The absolute path for meta dir is " + metaDir.getAbsolutePath());
             KylinConfig kylinConfig = KylinConfig.getInstanceFromEnv();
-            Map<String, String> paramsMap = new HashMap<>();
-            paramsMap.put("path", metaDir.getAbsolutePath());
-            StorageURL storageURL = new StorageURL(kylinConfig.getMetadataUrl().getIdentifier(), "ifile", paramsMap);
-            kylinConfig.setMetadataUrl(storageURL.toString());
+            kylinConfig.setMetadataUrl(metaDir.getAbsolutePath());
             return kylinConfig;
         } else {
             return KylinConfig.getInstanceFromEnv();
         }
-    }
-
-    public static KylinConfig loadKylinConfigFromHdfs(SerializableConfiguration conf, String uri) {
-        HadoopUtil.setCurrentConfiguration(conf.get());
-        return loadKylinConfigFromHdfs(uri);
     }
 
     public static KylinConfig loadKylinConfigFromHdfs(String uri) {
@@ -486,7 +476,8 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
         logger.info("Ready to load KylinConfig from uri: {}", uri);
         KylinConfig config;
         FileSystem fs;
-        String realHdfsPath = StorageURL.valueOf(uri).getParameter("path") + "/" + KylinConfig.KYLIN_CONF_PROPERTIES_FILE;
+        int cut = uri.indexOf('@');
+        String realHdfsPath = uri.substring(0, cut) + "/" + KylinConfig.KYLIN_CONF_PROPERTIES_FILE;
         try {
             fs = HadoopUtil.getFileSystem(realHdfsPath);
             InputStream is = fs.open(new Path(realHdfsPath));
@@ -506,47 +497,23 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
     }
 
     protected void attachCubeMetadata(CubeInstance cube, Configuration conf) throws IOException {
-        dumpKylinPropsAndMetadata(cube.getProject(), collectCubeMetadata(cube), cube.getConfig(),
+        dumpKylinPropsAndMetadata(cube.getProject(), JobRelatedMetaUtil.collectCubeMetadata(cube), cube.getConfig(),
                 conf);
     }
 
     protected void attachCubeMetadataWithDict(CubeInstance cube, Configuration conf) throws IOException {
         Set<String> dumpList = new LinkedHashSet<>();
-        dumpList.addAll(collectCubeMetadata(cube));
+        dumpList.addAll(JobRelatedMetaUtil.collectCubeMetadata(cube));
         for (CubeSegment segment : cube.getSegments()) {
             dumpList.addAll(segment.getDictionaryPaths());
         }
         dumpKylinPropsAndMetadata(cube.getProject(), dumpList, cube.getConfig(), conf);
     }
 
-    protected void attachSegmentsMetadataWithDict(List<CubeSegment> segments, Configuration conf) throws IOException {
-        Set<String> dumpList = new LinkedHashSet<>();
-        CubeInstance cube = segments.get(0).getCubeInstance();
-        dumpList.addAll(collectCubeMetadata(cube));
-        for (CubeSegment segment : segments) {
-            dumpList.addAll(segment.getDictionaryPaths());
-        }
-        dumpKylinPropsAndMetadata(cube.getProject(), dumpList, cube.getConfig(), conf);
-    }
-
     protected void attachSegmentMetadataWithDict(CubeSegment segment, Configuration conf) throws IOException {
-        attachSegmentMetadata(segment, conf, true, false);
-    }
-
-    protected void attachSegmentMetadataWithAll(CubeSegment segment, Configuration conf) throws IOException {
-        attachSegmentMetadata(segment, conf, true, true);
-    }
-
-    protected void attachSegmentMetadata(CubeSegment segment, Configuration conf, boolean ifDictIncluded,
-            boolean ifStatsIncluded) throws IOException {
         Set<String> dumpList = new LinkedHashSet<>();
-        dumpList.addAll(collectCubeMetadata(segment.getCubeInstance()));
-        if (ifDictIncluded) {
-            dumpList.addAll(segment.getDictionaryPaths());
-        }
-        if (ifStatsIncluded) {
-            dumpList.add(segment.getStatisticsResourcePath());
-        }
+        dumpList.addAll(JobRelatedMetaUtil.collectCubeMetadata(segment.getCubeInstance()));
+        dumpList.addAll(segment.getDictionaryPaths());
         dumpKylinPropsAndMetadata(segment.getProject(), dumpList, segment.getConfig(), conf);
     }
 
@@ -622,12 +589,9 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
         for (InputSplit split : input.getSplits(job)) {
             mapInputBytes += split.getLength();
         }
-        
-        // 0 input bytes is possible when the segment range hits no partition on a partitioned hive table (KYLIN-2470) 
         if (mapInputBytes == 0) {
-            logger.warn("Map input splits are 0 bytes, something is wrong?");
+            throw new IllegalArgumentException("Map input splits are 0 bytes, something is wrong!");
         }
-        
         double totalMapInputMB = (double) mapInputBytes / 1024 / 1024;
         return totalMapInputMB;
     }
@@ -697,9 +661,4 @@ public abstract class AbstractHadoopJob extends Configured implements Tool {
         return false;
     }
 
-    @Override
-    public void setConf(Configuration conf) {
-        Configuration healSickConf = HadoopUtil.healSickConfig(conf);
-        super.setConf(healSickConf);
-    }
 }

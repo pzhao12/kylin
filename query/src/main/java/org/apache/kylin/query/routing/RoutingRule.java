@@ -57,7 +57,10 @@ public abstract class RoutingRule {
         sb.append("[");
         for (Candidate candidate : candidates) {
             IRealization r = candidate.realization;
-            sb.append(r.getCanonicalName());
+            sb.append(r.getName());
+            sb.append("(");
+            sb.append(r.getType());
+            sb.append(")");
             sb.append(",");
         }
         if (sb.charAt(sb.length() - 1) != '[')

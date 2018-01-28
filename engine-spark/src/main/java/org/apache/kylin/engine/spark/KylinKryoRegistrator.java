@@ -120,6 +120,7 @@ public class KylinKryoRegistrator implements KryoRegistrator {
         kyroClasses.add(org.apache.kylin.common.persistence.RootPersistentEntity.class);
         kyroClasses.add(org.apache.kylin.common.util.Array.class);
         kyroClasses.add(org.apache.kylin.common.util.ByteArray.class);
+        kyroClasses.add(org.apache.kylin.common.util.ByteArray.ImmutableByteArray.class);
         kyroClasses.add(org.apache.kylin.common.util.Dictionary.class);
         kyroClasses.add(org.apache.kylin.common.util.OrderedProperties.class);
         kyroClasses.add(org.apache.kylin.common.util.Pair.class);
@@ -154,6 +155,7 @@ public class KylinKryoRegistrator implements KryoRegistrator {
         kyroClasses.add(org.apache.kylin.cube.model.RowKeyColDesc.class);
         kyroClasses.add(org.apache.kylin.cube.model.RowKeyDesc.class);
         kyroClasses.add(org.apache.kylin.cube.model.SelectRule.class);
+        kyroClasses.add(org.apache.kylin.cube.model.v1_4_0.CubeDesc.class);
         kyroClasses.add(org.apache.kylin.dict.AppendTrieDictionary.class);
         kyroClasses.add(org.apache.kylin.dict.CacheDictionary.class);
         kyroClasses.add(org.apache.kylin.dict.DateStrDictionary.class);
@@ -262,9 +264,11 @@ public class KylinKryoRegistrator implements KryoRegistrator {
         kyroClasses.add(org.apache.kylin.metadata.datatype.StringSerializer.class);
         kyroClasses.add(org.apache.kylin.metadata.model.ColumnDesc.class);
         kyroClasses.add(org.apache.kylin.metadata.model.DataModelDesc.class);
+        kyroClasses.add(org.apache.kylin.metadata.model.ComputedColumnDesc.class);
         kyroClasses.add(org.apache.kylin.metadata.model.DataModelDesc.RealizationCapacity.class);
         kyroClasses.add(org.apache.kylin.metadata.model.DataModelDesc.TableKind.class);
         kyroClasses.add(org.apache.kylin.metadata.model.DatabaseDesc.class);
+        kyroClasses.add(org.apache.kylin.metadata.model.ComputedColumnDesc.class);
         kyroClasses.add(org.apache.kylin.metadata.model.ExternalFilterDesc.class);
         kyroClasses.add(org.apache.kylin.metadata.model.FunctionDesc.class);
         kyroClasses.add(org.apache.kylin.metadata.model.JoinDesc.class);

@@ -19,7 +19,6 @@
 package org.apache.kylin.metadata.datatype;
 
 import java.io.Serializable;
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,7 +34,6 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.BytesSerializer;
 import org.apache.kylin.common.util.BytesUtil;
-import org.apache.kylin.common.util.DateFormat;
 import org.apache.kylin.measure.MeasureTypeFactory;
 import org.apache.kylin.metadata.model.TblColRef.InnerDataTypeEnum;
 
@@ -45,10 +43,8 @@ import org.apache.kylin.metadata.model.TblColRef.InnerDataTypeEnum;
 public class DataType implements Serializable {
 
     private static final LinkedHashSet<String> VALID_TYPES = new LinkedHashSet<String>();
-    private static final LinkedHashSet<String> COMPLEX_TYPES = new LinkedHashSet<String>();
 
     private static Pattern TYPE_PATTERN = null;
-    private static Pattern COMPLEX_TYPE_PATTERN = null;
     private static final String TYPE_PATTEN_TAIL = "\\s*" //
             + "(?:" + "[(]" + "([\\d\\s,]+)" + "[)]" + ")?";
 
@@ -63,18 +59,8 @@ public class DataType implements Serializable {
                 Pattern.CASE_INSENSITIVE);
     }
 
-    public static synchronized void registerComplex(String... typeNames) {
-        for (String typeName : typeNames) {
-            COMPLEX_TYPES.add(typeName);
-        }
-        COMPLEX_TYPE_PATTERN = Pattern.compile(//
-                "(" + StringUtils.join(COMPLEX_TYPES, "|") + ")" //
-                        + TYPE_PATTEN_TAIL,
-                Pattern.CASE_INSENSITIVE);
-    }
-
+    // standard sql types, ref: http://www.w3schools.com/sql/sql_datatypes_general.asp
     static {
-        // standard sql types, ref: http://www.w3schools.com/sql/sql_datatypes_general.asp
         register("any", "char", "varchar", "string", //
                 "boolean", "byte", "binary", //
                 "int", "short", "long", "integer", "tinyint", "smallint", "bigint", //
@@ -82,8 +68,6 @@ public class DataType implements Serializable {
                 "float", "real", "double", "decimal", "numeric", //
                 "date", "time", "datetime", "timestamp", //
                 InnerDataTypeEnum.LITERAL.getDataType(), InnerDataTypeEnum.DERIVED.getDataType());
-
-        registerComplex("array\\<.*\\>");
     }
 
     public static final Set<String> INTEGER_FAMILY = new HashSet<String>();
@@ -135,11 +119,6 @@ public class DataType implements Serializable {
         MeasureTypeFactory.getUDAFs();
     }
 
-    public static boolean isComplexType(DataType type) {
-        Matcher m = COMPLEX_TYPE_PATTERN.matcher(type.getName());
-        return m.matches();
-    }
-
     public static DataType getType(String type) {
         if (type == null)
             return null;
@@ -170,15 +149,9 @@ public class DataType implements Serializable {
         datatype = replaceLegacy(datatype);
 
         Pattern pattern = TYPE_PATTERN;
-        Pattern complexPattern = COMPLEX_TYPE_PATTERN;
         Matcher m = pattern.matcher(datatype);
-        Matcher m2 = complexPattern.matcher(datatype);
-        if (m.matches() == false && m2.matches() == false)
+        if (m.matches() == false)
             throw new IllegalArgumentException("bad data type -- " + datatype + ", does not match " + pattern);
-
-        if (m2.matches()) {
-            m = m2;
-        }
 
         name = replaceLegacy(m.group(1));
         precision = -1;
@@ -223,23 +196,6 @@ public class DataType implements Serializable {
 
     }
 
-    public int compare(String value1, String value2) {
-        if (isDateTimeFamily()) {
-            Long millis1 = DateFormat.stringToMillis(value1);
-            Long millis2 = DateFormat.stringToMillis(value2);
-            return millis1.compareTo(millis2);
-        } else if (isIntegerFamily()) {
-            Long l1 = new Long(value1);
-            Long l2 = new Long(value2);
-            return l1.compareTo(l2);
-        } else if (isNumberFamily()) {
-            BigDecimal bigDecimal1 = new BigDecimal(value1);
-            BigDecimal bigDecimal2 = new BigDecimal(value2);
-            return bigDecimal1.compareTo(bigDecimal2);
-        }
-        return value1.compareTo(value2);
-    }
-
     private String replaceLegacy(String str) {
         String replace = LEGACY_TYPE_MAP.get(str);
         return replace == null ? str : replace;
@@ -247,10 +203,6 @@ public class DataType implements Serializable {
 
     public int getStorageBytesEstimate() {
         return DataTypeSerializer.create(this).getStorageBytesEstimate();
-    }
-
-    public double getStorageBytesEstimate(double count) {
-        return DataTypeSerializer.create(this).getStorageBytesEstimate(count);
     }
 
     public boolean isStringFamily() {

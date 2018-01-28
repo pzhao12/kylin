@@ -62,10 +62,12 @@ KylinApp.controller('ModelSchemaCtrl', function ($scope, QueryService, UserServi
   //init modelsManager
   if ($scope.state.mode == "edit") {
     var defer = $q.defer();
+    var queryParam = {};
     if (!$scope.projectModel.isSelectedProjectValid()) {
       return;
     }
-    modelsManager.list().then(function (resp) {
+    queryParam.projectName = $scope.projectModel.selectedProject;
+    modelsManager.list(queryParam).then(function (resp) {
       defer.resolve(resp);
       modelsManager.loading = false;
       return defer.promise;
@@ -82,6 +84,10 @@ KylinApp.controller('ModelSchemaCtrl', function ($scope, QueryService, UserServi
 
   });
 
+  // ~ public methods
+  $scope.filterProj = function (project) {
+    return $scope.userService.hasRole('ROLE_ADMIN') || $scope.hasPermission(project, $scope.permissions.ADMINISTRATION.mask);
+  };
 
   $scope.removeElement = function (arr, element) {
     var index = arr.indexOf(element);

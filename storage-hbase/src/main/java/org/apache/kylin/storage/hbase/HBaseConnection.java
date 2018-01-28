@@ -20,10 +20,8 @@ package org.apache.kylin.storage.hbase;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -76,11 +74,14 @@ public class HBaseConnection {
         Runtime.getRuntime().addShutdownHook(new Thread() {
             @Override
             public void run() {
-                try {
-                    closeCoprocessorPool();
-                    closeAndRestConnPool().join();
-                } catch (InterruptedException e) {
-                    logger.error("", e);
+                closeCoprocessorPool();
+
+                for (Connection conn : connPool.values()) {
+                    try {
+                        conn.close();
+                    } catch (IOException e) {
+                        logger.error("error closing hbase connection " + conn, e);
+                    }
                 }
             }
         });
@@ -127,30 +128,9 @@ public class HBaseConnection {
             coprocessorPool.shutdownNow();
         }
     }
-    
-    private static Thread closeAndRestConnPool() {
-        final List<Connection> copy = new ArrayList<>(connPool.values());
-        connPool.clear();
-        
-        Thread t = new Thread() {
-            public void run() {
-                logger.info("Closing HBase connections...");
-                for (Connection conn : copy) {
-                    try {
-                        conn.close();
-                    } catch (Exception e) {
-                        logger.error("error closing hbase connection " + conn, e);
-                    }
-                }
-            }
-        };
-        t.setName("close-hbase-conn");
-        t.start();
-        return t;
-    }
 
     public static void clearConnCache() {
-        closeAndRestConnPool();
+        connPool.clear();
     }
 
     public static Configuration getCurrentHBaseConfiguration() {
@@ -174,14 +154,6 @@ public class HBaseConnection {
         String hbaseClusterFs = kylinConf.getHBaseClusterFs();
         if (StringUtils.isNotEmpty(hbaseClusterFs)) {
             conf.set(FileSystem.FS_DEFAULT_NAME_KEY, hbaseClusterFs);
-        } else {
-            try {
-                FileSystem fs = HadoopUtil.getWorkingFileSystem(HadoopUtil.getCurrentConfiguration());
-                conf.set(FileSystem.FS_DEFAULT_NAME_KEY, fs.getUri().toString());
-                logger.debug("Using the working dir FS for HBase: " + fs.getUri().toString());
-            } catch (IOException e) {
-                logger.error("Fail to set working dir to HBase configuration", e);
-            }
         }
 
         // https://issues.apache.org/jira/browse/KYLIN-953
@@ -234,8 +206,12 @@ public class HBaseConnection {
         Path path = new Path(inPath);
         path = Path.getPathWithoutSchemeAndAuthority(path);
 
-        FileSystem fs = HadoopUtil.getFileSystem(path, getCurrentHBaseConfiguration()); // Must be HBase's FS, not working FS
-        return fs.makeQualified(path).toString();
+        try {
+            FileSystem fs = HadoopUtil.getWorkingFileSystem(getCurrentHBaseConfiguration());
+            return fs.makeQualified(path).toString();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Cannot create FileSystem from current hbase cluster conf", e);
+        }
     }
 
     // ============================================================================

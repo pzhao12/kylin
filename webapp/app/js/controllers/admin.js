@@ -23,6 +23,7 @@ KylinApp.controller('AdminCtrl', function ($scope, AdminService, CacheService, T
   $scope.envStr = "";
 
   $scope.isCacheEnabled = function(){
+    console.log("cache enabled?:"+kylinConfig.isCacheEnabled());
     return kylinConfig.isCacheEnabled();
   }
 
@@ -115,11 +116,6 @@ KylinApp.controller('AdminCtrl', function ($scope, AdminService, CacheService, T
   }
 
   $scope.calCardinality = function (tableName) {
-    var _project = ProjectModel.selectedProject;
-      if (_project == null){
-        SweetAlert.swal('', "No project selected.", 'info');
-          return;
-        }
     $modal.open({
       templateUrl: 'calCardinality.html',
       controller: CardinalityGenCtrl,

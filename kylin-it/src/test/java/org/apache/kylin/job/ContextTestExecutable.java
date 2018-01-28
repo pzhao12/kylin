@@ -36,7 +36,7 @@ public class ContextTestExecutable extends AbstractExecutable {
         } catch (InterruptedException e) {
         }
         if (context.getConfig() == BaseTestDistributedScheduler.kylinConfig1) {
-            return new ExecuteResult();
+            return new ExecuteResult(ExecuteResult.State.SUCCEED, "succeed");
         } else {
             return new ExecuteResult(ExecuteResult.State.ERROR, "error");
         }

@@ -22,9 +22,12 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.ClassUtil;
+import org.apache.kylin.metadata.cachesync.Broadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,14 +38,34 @@ import com.google.common.collect.Maps;
 public class RealizationRegistry {
 
     private static final Logger logger = LoggerFactory.getLogger(RealizationRegistry.class);
+    private static final ConcurrentMap<KylinConfig, RealizationRegistry> CACHE = new ConcurrentHashMap<KylinConfig, RealizationRegistry>();
 
     public static RealizationRegistry getInstance(KylinConfig config) {
-        return config.getManager(RealizationRegistry.class);
+        RealizationRegistry r = CACHE.get(config);
+        if (r != null) {
+            return r;
+        }
+
+        synchronized (RealizationRegistry.class) {
+            r = CACHE.get(config);
+            if (r != null) {
+                return r;
+            }
+            try {
+                r = new RealizationRegistry(config);
+                CACHE.put(config, r);
+                if (CACHE.size() > 1) {
+                    logger.warn("More than one singleton exist");
+                }
+                return r;
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to init CubeManager from " + config, e);
+            }
+        }
     }
 
-    // called by reflection
-    static RealizationRegistry newInstance(KylinConfig config) throws IOException {
-        return new RealizationRegistry(config);
+    public static void clearCache() {
+        CACHE.clear();
     }
 
     // ============================================================================
@@ -54,6 +77,13 @@ public class RealizationRegistry {
         logger.info("Initializing RealizationRegistry with metadata url " + config);
         this.config = config;
         init();
+
+        Broadcaster.getInstance(config).registerListener(new Broadcaster.Listener() {
+            @Override
+            public void onClearAll(Broadcaster broadcaster) throws IOException {
+                clearCache();
+            }
+        }, "");
     }
 
     private void init() {

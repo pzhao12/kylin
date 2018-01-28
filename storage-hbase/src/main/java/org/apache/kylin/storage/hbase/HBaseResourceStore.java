@@ -99,9 +99,9 @@ public class HBaseResourceStore extends ResourceStore {
 
         // control timeout for prompt error report
         Map<String, String> newParams = new LinkedHashMap<>();
-        newParams.put("hbase.client.scanner.timeout.period", kylinConfig.getHbaseClientScannerTimeoutPeriod());
-        newParams.put("hbase.rpc.timeout", kylinConfig.getHbaseRpcTimeout());
-        newParams.put("hbase.client.retries.number", kylinConfig.getHbaseClientRetriesNumber());
+        newParams.put("hbase.client.scanner.timeout.period", "10000");
+        newParams.put("hbase.rpc.timeout", "5000");
+        newParams.put("hbase.client.retries.number", "1");
         newParams.putAll(url.getAllParameters());
 
         return url.copy(newParams);
@@ -133,7 +133,7 @@ public class HBaseResourceStore extends ResourceStore {
 
     /* override get meta store uuid method for backward compatibility */
     @Override
-    protected String createMetaStoreUUID() throws IOException {
+    public String createMetaStoreUUID() throws IOException {
         try (final Admin hbaseAdmin = HBaseConnection.get(metadataUrl).getAdmin()) {
             final String metaStoreName = metadataUrl.getIdentifier();
             final HTableDescriptor desc = hbaseAdmin.getTableDescriptor(TableName.valueOf(metaStoreName));
@@ -248,7 +248,7 @@ public class HBaseResourceStore extends ResourceStore {
         byte[] value = r.getValue(B_FAMILY, B_COLUMN);
         if (value.length == 0) {
             Path redirectPath = bigCellHDFSPath(resPath);
-            FileSystem fileSystem = HadoopUtil.getFileSystem(redirectPath, HBaseConnection.getCurrentHBaseConfiguration());
+            FileSystem fileSystem = HadoopUtil.getWorkingFileSystem(HBaseConnection.getCurrentHBaseConfiguration());
 
             try {
                 return fileSystem.open(redirectPath);
@@ -341,7 +341,7 @@ public class HBaseResourceStore extends ResourceStore {
 
             if (hdfsResourceExist) { // remove hdfs cell value
                 Path redirectPath = bigCellHDFSPath(resPath);
-                FileSystem fileSystem = HadoopUtil.getFileSystem(redirectPath, HBaseConnection.getCurrentHBaseConfiguration());
+                FileSystem fileSystem = HadoopUtil.getWorkingFileSystem(HBaseConnection.getCurrentHBaseConfiguration());
 
                 if (fileSystem.exists(redirectPath)) {
                     fileSystem.delete(redirectPath, true);
@@ -389,7 +389,7 @@ public class HBaseResourceStore extends ResourceStore {
 
     private Path writeLargeCellToHdfs(String resPath, byte[] largeColumn, Table table) throws IOException {
         Path redirectPath = bigCellHDFSPath(resPath);
-        FileSystem fileSystem = HadoopUtil.getFileSystem(redirectPath, HBaseConnection.getCurrentHBaseConfiguration());
+        FileSystem fileSystem = HadoopUtil.getWorkingFileSystem(HBaseConnection.getCurrentHBaseConfiguration());
 
         if (fileSystem.exists(redirectPath)) {
             fileSystem.delete(redirectPath, true);
@@ -409,7 +409,6 @@ public class HBaseResourceStore extends ResourceStore {
     public Path bigCellHDFSPath(String resPath) {
         String hdfsWorkingDirectory = this.kylinConfig.getHdfsWorkingDirectory();
         Path redirectPath = new Path(hdfsWorkingDirectory, "resources" + resPath);
-        redirectPath =  Path.getPathWithoutSchemeAndAuthority(redirectPath);
         return redirectPath;
     }
 

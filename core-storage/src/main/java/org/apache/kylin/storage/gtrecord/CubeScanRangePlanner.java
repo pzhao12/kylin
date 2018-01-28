@@ -63,7 +63,6 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
     private static final Logger logger = LoggerFactory.getLogger(CubeScanRangePlanner.class);
 
     protected int maxScanRanges;
-    protected int maxFuzzyKeysPerSplit;
     protected int maxFuzzyKeys;
 
     //non-GT
@@ -71,13 +70,14 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
     protected CubeDesc cubeDesc;
     protected Cuboid cuboid;
 
+    protected StorageContext context;
+
     public CubeScanRangePlanner(CubeSegment cubeSegment, Cuboid cuboid, TupleFilter filter, Set<TblColRef> dimensions, Set<TblColRef> groupByDims, //
-                                Collection<FunctionDesc> metrics, TupleFilter havingFilter, StorageContext context) {
+            Collection<FunctionDesc> metrics, TupleFilter havingFilter, StorageContext context) {
         this.context = context;
 
-        this.maxScanRanges = cubeSegment.getConfig().getQueryStorageVisitScanRangeMax();
-        this.maxFuzzyKeysPerSplit = cubeSegment.getConfig().getQueryScanFuzzyKeyMax();
-        this.maxFuzzyKeys = maxFuzzyKeysPerSplit * cubeSegment.getConfig().getQueryScanFuzzyKeySplitMax();
+        this.maxScanRanges = KylinConfig.getInstanceFromEnv().getQueryStorageVisitScanRangeMax();
+        this.maxFuzzyKeys = KylinConfig.getInstanceFromEnv().getQueryScanFuzzyKeyMax();
 
         this.cubeSegment = cubeSegment;
         this.cubeDesc = cubeSegment.getCubeDesc();
@@ -118,16 +118,13 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
         }
     }
 
-    protected StorageContext context;
-
     /**
      * Construct  GTScanRangePlanner with incomplete information. For UT only.
      */
     public CubeScanRangePlanner(GTInfo info, Pair<ByteArray, ByteArray> gtStartAndEnd, TblColRef gtPartitionCol, TupleFilter gtFilter) {
 
         this.maxScanRanges = KylinConfig.getInstanceFromEnv().getQueryStorageVisitScanRangeMax();
-        this.maxFuzzyKeysPerSplit = KylinConfig.getInstanceFromEnv().getQueryScanFuzzyKeyMax();
-        this.maxFuzzyKeys = maxFuzzyKeysPerSplit * KylinConfig.getInstanceFromEnv().getQueryScanFuzzyKeySplitMax();
+        this.maxFuzzyKeys = KylinConfig.getInstanceFromEnv().getQueryScanFuzzyKeyMax();
 
         this.gtInfo = info;
 
@@ -175,7 +172,6 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
         }
 
         List<GTScanRange> mergedRanges = mergeOverlapRanges(scanRanges);
-        mergedRanges = splitFuzzyKeys(mergedRanges);
         mergedRanges = mergeTooManyRanges(mergedRanges, maxScanRanges);
 
         return mergedRanges;
@@ -199,6 +195,8 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
         GTRecord pkStart = new GTRecord(gtInfo);
         GTRecord pkEnd = new GTRecord(gtInfo);
         Map<Integer, Set<ByteArray>> fuzzyValues = Maps.newHashMap();
+
+        List<GTRecord> fuzzyKeys;
 
         for (ColumnRange range : andDimRanges) {
             if (gtPartitionCol != null && range.column.equals(gtPartitionCol)) {
@@ -226,8 +224,9 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
             }
         }
 
-        List<GTRecord> fuzzyKeys = buildFuzzyKeys(fuzzyValues);
+        fuzzyKeys =
 
+                buildFuzzyKeys(fuzzyValues);
         return new GTScanRange(pkStart, pkEnd, fuzzyKeys);
     }
 
@@ -244,6 +243,7 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
         }
 
         List<Map<Integer, ByteArray>> fuzzyValueCombinations = FuzzyValueCombination.calculate(fuzzyValueSet, maxFuzzyKeys);
+
         for (Map<Integer, ByteArray> fuzzyValue : fuzzyValueCombinations) {
 
             //            BitSet bitSet = new BitSet(gtInfo.getColumnCount());
@@ -309,7 +309,7 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
 
         GTRecord start = first.pkStart;
         GTRecord end = first.pkEnd;
-        Set<GTRecord> newFuzzyKeys = Sets.newLinkedHashSet();
+        List<GTRecord> newFuzzyKeys = new ArrayList<GTRecord>();
 
         boolean hasNonFuzzyRange = false;
         for (GTScanRange range : ranges) {
@@ -319,15 +319,12 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
         }
 
         // if any range is non-fuzzy, then all fuzzy keys must be cleared
-        // too many fuzzy keys will slow down HBase scan
+        // also too many fuzzy keys will slow down HBase scan
         if (hasNonFuzzyRange || newFuzzyKeys.size() > maxFuzzyKeys) {
-            if (newFuzzyKeys.size() > maxFuzzyKeys) {
-                logger.debug("too many FuzzyKeys,  clean it!");
-            }
             newFuzzyKeys.clear();
         }
 
-        return new GTScanRange(start, end, Lists.newArrayList(newFuzzyKeys));
+        return new GTScanRange(start, end, newFuzzyKeys);
     }
 
     protected List<GTScanRange> mergeTooManyRanges(List<GTScanRange> ranges, int maxRanges) {
@@ -339,32 +336,6 @@ public class CubeScanRangePlanner extends ScanRangePlannerBase {
         List<GTScanRange> result = new ArrayList<GTScanRange>(1);
         GTScanRange mergedRange = mergeKeyRange(ranges);
         result.add(mergedRange);
-
-        result = splitFuzzyKeys(result);
-        return result;
-    }
-
-    private List<GTScanRange> splitFuzzyKeys(List<GTScanRange> mergedRanges) {
-        List<GTScanRange> result = Lists.newArrayList();
-        for (GTScanRange range : mergedRanges) {
-            // if the fuzzy key is huge but still within in split range, then we split fuzzy keys to multiple ones.
-            if (range.fuzzyKeys.size() > maxFuzzyKeysPerSplit && range.fuzzyKeys.size() <= maxFuzzyKeys) {
-                List<GTRecord> fuzzyKeys = range.fuzzyKeys;
-                Collections.sort(fuzzyKeys);
-                int nSplit = (fuzzyKeys.size() - 1) / maxFuzzyKeysPerSplit + 1;
-                int nFuzzyKeysPerSplit = fuzzyKeys.size() / nSplit;
-                int startIndex = 0;
-                for (int i = 1; i <= nSplit; i++) {
-                    int endIndex = i == nSplit ? fuzzyKeys.size() : i * nFuzzyKeysPerSplit;
-                    List<GTRecord> subFuzzyKeys = fuzzyKeys.subList(startIndex, endIndex);
-                    result.add(new GTScanRange(range.pkStart, range.pkEnd, subFuzzyKeys));
-                    startIndex = endIndex;
-                }
-                logger.debug("large FuzzyKeys split size : " + result.size());
-            } else {
-                result.add(range);
-            }
-        }
         return result;
     }
 

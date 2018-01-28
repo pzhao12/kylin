@@ -37,7 +37,7 @@ public class UpdateTimeRangeStep extends AbstractExecutable {
 
     @Override
     protected ExecuteResult doWork(ExecutableContext context) throws ExecuteException {
-        return new ExecuteResult();
+        return new ExecuteResult(ExecuteResult.State.SUCCEED, "succeed");
     }
 
 }

@@ -32,6 +32,12 @@ import org.junit.Test;
 import com.google.common.collect.Maps;
 
 public class KylinConfigTest extends HotLoadKylinPropertiesTestCase {
+    @Test
+    public void testDuplicateConfig() {
+        KylinConfig config = KylinConfig.getInstanceFromEnv();
+        String v = config.getJobControllerLock();
+        assertEquals("org.apache.kylin.job.lock.MockJobLock", v);
+    }
 
     @Test
     public void testMRConfigOverride() {

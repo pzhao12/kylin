@@ -30,7 +30,6 @@ import org.apache.hadoop.hbase.filter.FilterList;
 import org.apache.hadoop.hbase.filter.FuzzyRowFilter;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.QueryContext;
-import org.apache.kylin.common.QueryContextFacade;
 import org.apache.kylin.common.debug.BackdoorToggles;
 import org.apache.kylin.common.util.Bytes;
 import org.apache.kylin.common.util.ImmutableBitSet;
@@ -77,7 +76,7 @@ public abstract class CubeHBaseRPC implements IGTStorage {
         this.cubeSeg = (CubeSegment) segment;
         this.cuboid = cuboid;
         this.fullGTInfo = fullGTInfo;
-        this.queryContext = QueryContextFacade.current();
+        this.queryContext = QueryContext.current();
         this.storageContext = context;
 
         this.fuzzyKeyEncoder = new FuzzyKeyEncoder(cubeSeg, cuboid);
@@ -278,22 +277,20 @@ public abstract class CubeHBaseRPC implements IGTStorage {
         info.append(Bytes.toStringBinary(rawScan.endKey) + ")");
         if (rawScan.fuzzyKeys != null && rawScan.fuzzyKeys.size() != 0) {
             info.append(" Fuzzy key counts: " + rawScan.fuzzyKeys.size());
-            if (rawScan.fuzzyKeys.size() <= 20) { // avoid logging too many fuzzy keys
-                info.append(". Fuzzy keys : ");
-                info.append(rawScan.getFuzzyKeyAsString());
-            }
+            info.append(". Fuzzy keys : ");
+            info.append(rawScan.getFuzzyKeyAsString());
         } else {
             info.append(", No Fuzzy Key");
         }
         logger.info(info.toString());
     }
 
-    protected long getCoprocessorTimeoutMillis() {
-        long coopTimeout;
+    protected int getCoprocessorTimeoutMillis() {
+        int coopTimeout;
         if (BackdoorToggles.getQueryTimeout() != -1) {
             coopTimeout = BackdoorToggles.getQueryTimeout();
         } else {
-            coopTimeout = cubeSeg.getConfig().getQueryCoprocessorTimeoutSeconds() * 1000L;
+            coopTimeout = cubeSeg.getConfig().getQueryCoprocessorTimeoutSeconds() * 1000;
         }
         
         int rpcTimeout;
@@ -308,10 +305,9 @@ public abstract class CubeHBaseRPC implements IGTStorage {
         
         // coprocessor timeout is 0 by default
         if (coopTimeout <= 0) {
-            coopTimeout = (long) (rpcTimeout * 0.9);
+            coopTimeout = (int) (rpcTimeout * 0.9);
         }
-
-        queryContext.checkMillisBeforeDeadline();
+        
         logger.debug("{} = {} ms, use {} ms as timeout for coprocessor", HConstants.HBASE_RPC_TIMEOUT_KEY, rpcTimeout, coopTimeout);
         return coopTimeout;
     }

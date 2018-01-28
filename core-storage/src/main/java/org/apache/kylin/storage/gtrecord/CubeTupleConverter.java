@@ -35,7 +35,7 @@ import org.apache.kylin.dict.lookup.SnapshotManager;
 import org.apache.kylin.dict.lookup.SnapshotTable;
 import org.apache.kylin.measure.MeasureType;
 import org.apache.kylin.measure.MeasureType.IAdvMeasureFiller;
-import org.apache.kylin.metadata.TableMetadataManager;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.model.FunctionDesc;
 import org.apache.kylin.metadata.model.JoinDesc;
 import org.apache.kylin.metadata.model.TableDesc;
@@ -59,16 +59,16 @@ public class CubeTupleConverter implements ITupleConverter {
     final CubeSegment cubeSeg;
     final Cuboid cuboid;
     final TupleInfo tupleInfo;
-    public final List<IDerivedColumnFiller> derivedColFillers;
+    private final List<IDerivedColumnFiller> derivedColFillers;
 
-    public final int[] gtColIdx;
-    public final int[] tupleIdx;
-    public final MeasureType<?>[] measureTypes;
+    private final int[] gtColIdx;
+    private final int[] tupleIdx;
+    private final MeasureType<?>[] measureTypes;
 
-    public final List<IAdvMeasureFiller> advMeasureFillers;
-    public final List<Integer> advMeasureIndexInGTValues;
+    private final List<IAdvMeasureFiller> advMeasureFillers;
+    private final List<Integer> advMeasureIndexInGTValues;
 
-    public final int nSelectedDims;
+    private final int nSelectedDims;
 
     public CubeTupleConverter(CubeSegment cubeSeg, Cuboid cuboid, //
             Set<TblColRef> selectedDimensions, Set<FunctionDesc> selectedMetrics, int[] gtColIdx, TupleInfo returnTupleInfo) {
@@ -178,11 +178,11 @@ public class CubeTupleConverter implements ITupleConverter {
         }
     }
 
-    protected interface IDerivedColumnFiller {
+    private interface IDerivedColumnFiller {
         public void fillDerivedColumns(Object[] gtValues, Tuple tuple);
     }
 
-    protected IDerivedColumnFiller newDerivedColumnFiller(TblColRef[] hostCols, final DeriveInfo deriveInfo) {
+    private IDerivedColumnFiller newDerivedColumnFiller(TblColRef[] hostCols, final DeriveInfo deriveInfo) {
         boolean allHostsPresent = true;
         final int[] hostTmpIdx = new int[hostCols.length];
         for (int i = 0; i < hostCols.length; i++) {
@@ -253,7 +253,7 @@ public class CubeTupleConverter implements ITupleConverter {
         }
     }
 
-    public int indexOnTheGTValues(TblColRef col) {
+    private int indexOnTheGTValues(TblColRef col) {
         List<TblColRef> cuboidDims = cuboid.getColumns();
         int cuboidIdx = cuboidDims.indexOf(col);
         for (int i = 0; i < gtColIdx.length; i++) {
@@ -266,7 +266,7 @@ public class CubeTupleConverter implements ITupleConverter {
     public LookupStringTable getLookupTable(CubeSegment cubeSegment, JoinDesc join) {
         long ts = System.currentTimeMillis();
 
-        TableMetadataManager metaMgr = TableMetadataManager.getInstance(cubeSeg.getCubeInstance().getConfig());
+        MetadataManager metaMgr = MetadataManager.getInstance(cubeSeg.getCubeInstance().getConfig());
         SnapshotManager snapshotMgr = SnapshotManager.getInstance(cubeSeg.getCubeInstance().getConfig());
 
         String tableName = join.getPKSide().getTableIdentity();
@@ -286,7 +286,7 @@ public class CubeTupleConverter implements ITupleConverter {
         }
     }
 
-    public static class EnhancedStringLookupTable extends LookupStringTable {
+    private static class EnhancedStringLookupTable extends LookupStringTable {
 
         public EnhancedStringLookupTable(TableDesc tableDesc, String[] keyColumns, IReadableTable table) throws IOException {
             super(tableDesc, keyColumns, table);

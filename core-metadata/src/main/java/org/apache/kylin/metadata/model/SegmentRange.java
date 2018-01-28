@@ -31,7 +31,7 @@ import java.util.Comparator;
  * - And the choice must be consistent across all following segment creation.
  */
 @SuppressWarnings("serial")
-public class SegmentRange<T extends Comparable> implements Comparable<SegmentRange>, Serializable {
+public class SegmentRange<T extends Comparable> implements Serializable {
 
     public final Endpoint<T> start;
     public final Endpoint<T> end;
@@ -49,15 +49,6 @@ public class SegmentRange<T extends Comparable> implements Comparable<SegmentRan
         this.start = new Endpoint(start, start == null, false);
         this.end = new Endpoint(end, false, end == null);
         checkState();
-    }
-
-    @Override
-    public int compareTo(SegmentRange o) {
-        int comp = this.start.compareTo(o.start);
-        if (comp != 0)
-            return comp;
-
-        return this.end.compareTo(o.end);
     }
 
     private void checkState() {
@@ -156,8 +147,6 @@ public class SegmentRange<T extends Comparable> implements Comparable<SegmentRan
             return new Comparator<Endpoint>() {
                 @Override
                 public int compare(Endpoint a, Endpoint b) {
-                    if (a == null || b == null)
-                        throw new IllegalStateException();
                     if (a.isMin) {
                         return b.isMin ? 0 : -1;
                     } else if (b.isMin) {
@@ -167,6 +156,9 @@ public class SegmentRange<T extends Comparable> implements Comparable<SegmentRan
                     } else if (b.isMax) {
                         return a.isMax ? 0 : -1;
                     } else {
+                        if (a == null || b == null)
+                            throw new IllegalStateException();
+
                         return valueComparator.compare(a.v, b.v);
                     }
                 }

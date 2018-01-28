@@ -148,8 +148,8 @@ public class AclTableMigrationTool {
                     Result result = rs.next();
                     while (result != null) {
                         ManagedUser user = hbaseRowToUser(result);
-                        store.putResourceWithoutCheck(KylinUserService.getId(user.getUsername()), user,
-                                System.currentTimeMillis(), KylinUserService.SERIALIZER);
+                        store.putResourceWithoutCheck(UserService.getId(user.getUsername()), user,
+                                System.currentTimeMillis(), UserService.SERIALIZER);
                         result = rs.next();
                     }
                 }

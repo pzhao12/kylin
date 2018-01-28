@@ -38,7 +38,7 @@ public class HBaseMetadataTestCase extends AbstractKylinTestCase {
     }
 
     @Override
-    public void createTestMetadata(String... overlayMetadataDirs) throws Exception {
+    public void createTestMetadata() throws Exception {
         staticCreateTestMetadata();
     }
 

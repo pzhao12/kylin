@@ -31,6 +31,8 @@ public interface Scheduler<T extends Executable> {
 
     void shutdown() throws SchedulerException;
 
+    boolean stop(T executable) throws SchedulerException;
+
     boolean hasStarted();
 
 }

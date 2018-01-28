@@ -19,6 +19,7 @@
 package org.apache.kylin.cube.inmemcubing;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -32,7 +33,6 @@ import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
 import org.apache.kylin.engine.EngineFactory;
 import org.apache.kylin.gridtable.GTRecord;
-import org.apache.kylin.metadata.MetadataConstants;
 import org.apache.kylin.metadata.model.IJoinedFlatTableDesc;
 import org.apache.kylin.metadata.model.TblColRef;
 import org.junit.AfterClass;
@@ -67,8 +67,7 @@ public class ITDoggedCubeBuilderStressTest extends LocalFileMetadataTestCase {
         CubeManager cubeManager = CubeManager.getInstance(kylinConfig);
 
         cube = cubeManager.getCube("ssb");
-        flatTable = LOCALMETA_TEST_DATA + "/data/" + MetadataConstants.KYLIN_INTERMEDIATE_PREFIX
-                + "ssb_19920101000000_19920201000000.csv";
+        flatTable = LOCALMETA_TEST_DATA + "/data/kylin_intermediate_ssb_19920101000000_19920201000000.csv";
         dictionaryMap = ITInMemCubeBuilderTest.getDictionaryMap(cube, flatTable);
     }
 
@@ -80,7 +79,7 @@ public class ITDoggedCubeBuilderStressTest extends LocalFileMetadataTestCase {
     @Test
     public void test() throws Exception {
 
-        ArrayBlockingQueue<String[]> queue = new ArrayBlockingQueue<String[]>(1000);
+        ArrayBlockingQueue<List<String>> queue = new ArrayBlockingQueue<List<String>>(1000);
         ExecutorService executorService = Executors.newSingleThreadExecutor();
         long randSeed = System.currentTimeMillis();
 

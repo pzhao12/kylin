@@ -61,6 +61,10 @@ public class Message {
         return "Inconsistent cube desc signature for '%s', if it's right after an upgrade, please try 'Edit CubeDesc' to delete the 'signature' field. Or use 'bin/metastore.sh refresh-cube-signature' to batch refresh all cubes' signatures, then reload metadata to take effect.";
     }
 
+    public String getDELETE_NOT_FIRST_LAST_SEG() {
+        return "Cannot delete segment '%s' as it is neither the first nor the last segment.";
+    }
+
     public String getDELETE_NOT_READY_SEG() {
         return "Cannot delete segment '%s' as its status is not READY. Discard the on-going job for it.";
     }
@@ -98,7 +102,7 @@ public class Message {
     }
 
     public String getINVALID_CUBE_NAME() {
-        return "Invalid Cube name '%s', only letters, numbers and underscore supported.";
+        return "Invalid Cube name '%s', only letters, numbers and underline supported.";
     }
 
     public String getCUBE_ALREADY_EXIST() {
@@ -119,10 +123,6 @@ public class Message {
 
     public String getNO_READY_SEGMENT() {
         return "Cube '%s' doesn't contain any READY segment.";
-    }
-
-    public String getDELETE_SEGMENT_CAUSE_GAPS() {
-        return "Cube '%s' has gaps caused by deleting segment '%s'.";
     }
 
     public String getENABLE_WITH_RUNNING_JOB() {
@@ -249,10 +249,6 @@ public class Message {
         return "Cannot modify non-empty project";
     }
 
-    public String getPROJECT_RENAME() {
-        return "Project renaming is not allowed.";
-    }
-
     // Table
     public String getHIVE_TABLE_NOT_FOUND() {
         return "Cannot find Hive table '%s'.";
@@ -341,20 +337,12 @@ public class Message {
         return "Not Supported SQL.";
     }
 
-    public String getQUERY_TOO_MANY_RUNNING() {
-        return "Too many concurrent query requests.";
-    }
-
     public String getTABLE_META_INCONSISTENT() {
         return "Table metadata inconsistent with JDBC meta.";
     }
 
     public String getCOLUMN_META_INCONSISTENT() {
         return "Column metadata inconsistent with JDBC meta.";
-    }
-
-    public String getEXPORT_RESULT_NOT_ALLOWED() {
-        return "Current user is not allowed to export query result.";
     }
 
     // Access

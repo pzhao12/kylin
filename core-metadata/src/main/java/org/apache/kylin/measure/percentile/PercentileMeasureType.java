@@ -36,7 +36,6 @@ public class PercentileMeasureType extends MeasureType<PercentileCounter> {
     // compression ratio saved in DataType.precision
     private final DataType dataType;
     public static final String FUNC_PERCENTILE = "PERCENTILE";
-    public static final String FUNC_PERCENTILE_APPROX = "PERCENTILE_APPROX";
     public static final String DATATYPE_PERCENTILE = "percentile";
 
     public PercentileMeasureType(String funcName, DataType dataType) {
@@ -52,7 +51,7 @@ public class PercentileMeasureType extends MeasureType<PercentileCounter> {
 
         @Override
         public String getAggrFunctionName() {
-            return FUNC_PERCENTILE_APPROX;
+            return FUNC_PERCENTILE;
         }
 
         @Override
@@ -72,8 +71,7 @@ public class PercentileMeasureType extends MeasureType<PercentileCounter> {
             PercentileCounter current = new PercentileCounter(dataType.getPrecision());
 
             @Override
-            public PercentileCounter valueOf(String[] values, MeasureDesc measureDesc,
-                    Map<TblColRef, Dictionary<String>> dictionaryMap) {
+            public PercentileCounter valueOf(String[] values, MeasureDesc measureDesc, Map<TblColRef, Dictionary<String>> dictionaryMap) {
                 PercentileCounter counter = current;
                 counter.clear();
                 for (String v : values) {
@@ -95,9 +93,7 @@ public class PercentileMeasureType extends MeasureType<PercentileCounter> {
         return true;
     }
 
-    static final Map<String, Class<?>> UDAF_MAP = ImmutableMap.<String, Class<?>> of(
-            PercentileMeasureType.FUNC_PERCENTILE, PercentileAggFunc.class,
-            PercentileMeasureType.FUNC_PERCENTILE_APPROX, PercentileAggFunc.class);
+    static final Map<String, Class<?>> UDAF_MAP = ImmutableMap.<String, Class<?>> of(PercentileMeasureType.FUNC_PERCENTILE, PercentileAggFunc.class);
 
     @Override
     public Map<String, Class<?>> getRewriteCalciteAggrFunctions() {

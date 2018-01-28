@@ -75,7 +75,7 @@ public class TblColRef implements Serializable {
     }
 
     public static TableRef tableForUnknownModel(String tempTableAlias, TableDesc table) {
-        return new TableRef(UNKNOWN_MODEL, tempTableAlias, table, false);
+        return new TableRef(UNKNOWN_MODEL, tempTableAlias, table);
     }
 
     public static TblColRef columnForUnknownModel(TableRef table, ColumnDesc colDesc) {
@@ -129,13 +129,13 @@ public class TblColRef implements Serializable {
         this.identity = null;
     }
 
-    public ColumnDesc getColumnDesc() {
-        return column;
-    }
-
     public void unfixTableRef() {
         this.table = backupTable;
         this.identity = null;
+    }
+
+    public ColumnDesc getColumnDesc() {
+        return column;
     }
 
     public String getName() {
@@ -155,7 +155,7 @@ public class TblColRef implements Serializable {
     }
 
     public String getExpressionInSourceDB() {
-        if (!column.isComputedColumn()) {
+        if (!column.isComputedColumnn()) {
             return getIdentity();
         } else {
             return column.getComputedColumnExpr();
@@ -181,9 +181,6 @@ public class TblColRef implements Serializable {
         return column.getType();
     }
 
-    public String getBackupTableAlias(){
-        return backupTable.getAlias();
-    }
     private void markInnerColumn(InnerDataTypeEnum dataType) {
         this.column.setDatatype(dataType.getDataType());
         this.column.getTable().setName(INNER_TABLE_NAME);

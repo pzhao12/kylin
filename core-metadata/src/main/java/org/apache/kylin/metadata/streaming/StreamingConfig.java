@@ -34,7 +34,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  */
-@SuppressWarnings("serial")
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
 public class StreamingConfig extends RootPersistentEntity {
 
@@ -48,11 +47,6 @@ public class StreamingConfig extends RootPersistentEntity {
     @JsonProperty("type")
     private String type = STREAMING_TYPE_KAFKA;
 
-    @Override
-    public String resourceName() {
-        return name;
-    }
-    
     public String getType() {
         return type;
     }

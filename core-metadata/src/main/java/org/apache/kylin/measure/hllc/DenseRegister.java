@@ -110,7 +110,7 @@ public class DenseRegister implements Register, java.io.Serializable {
         return true;
     }
 
-    public  byte[] getRawRegister() {
+    byte[] getRawRegister() {
         return this.register;
     }
 

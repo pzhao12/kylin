@@ -19,11 +19,8 @@
 package org.apache.kylin.engine.mr.steps;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.Random;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -33,20 +30,16 @@ import org.apache.kylin.common.persistence.ResourceStore;
 import org.apache.kylin.common.util.HadoopUtil;
 import org.apache.kylin.cube.CubeSegment;
 import org.apache.kylin.engine.mr.CubingJob;
+import org.apache.kylin.engine.mr.CubingJob.AlgorithmEnum;
 import org.apache.kylin.engine.mr.common.BatchConstants;
 import org.apache.kylin.engine.mr.common.CubeStatsReader;
-import org.apache.kylin.engine.mr.common.CubeStatsWriter;
-import org.apache.kylin.engine.mr.common.StatisticsDecisionUtil;
 import org.apache.kylin.job.exception.ExecuteException;
 import org.apache.kylin.job.execution.AbstractExecutable;
 import org.apache.kylin.job.execution.ExecutableContext;
 import org.apache.kylin.job.execution.ExecuteResult;
-import org.apache.kylin.measure.hllc.HLLCounter;
+import org.apache.kylin.metadata.model.MeasureDesc;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 /**
  * Save the cube segment statistic to Kylin metadata store
@@ -61,112 +54,77 @@ public class SaveStatisticsStep extends AbstractExecutable {
 
     @Override
     protected ExecuteResult doWork(ExecutableContext context) throws ExecuteException {
-        CubeSegment newSegment = CubingExecutableUtil.findSegment(context,
-                CubingExecutableUtil.getCubeName(this.getParams()),
-                CubingExecutableUtil.getSegmentId(this.getParams()));
+        CubeSegment newSegment = CubingExecutableUtil.findSegment(context, CubingExecutableUtil.getCubeName(this.getParams()), CubingExecutableUtil.getSegmentId(this.getParams()));
         KylinConfig kylinConf = newSegment.getConfig();
 
         ResourceStore rs = ResourceStore.getStore(kylinConf);
         try {
-
             FileSystem fs = HadoopUtil.getWorkingFileSystem();
-            Configuration hadoopConf = HadoopUtil.getCurrentConfiguration();
             Path statisticsDir = new Path(CubingExecutableUtil.getStatisticsPath(this.getParams()));
-            Path[] statisticsFiles = HadoopUtil.getFilteredPath(fs, statisticsDir,
-                    BatchConstants.CFG_OUTPUT_STATISTICS);
-            if (statisticsFiles == null) {
+            Path statisticsFilePath = HadoopUtil.getFilterOnlyPath(fs, statisticsDir, BatchConstants.CFG_OUTPUT_STATISTICS);
+            if (statisticsFilePath == null) {
                 throw new IOException("fail to find the statistics file in base dir: " + statisticsDir);
             }
 
-            Map<Long, HLLCounter> cuboidHLLMap = Maps.newHashMap();
-            long totalRowsBeforeMerge = 0;
-            long grantTotal = 0;
-            int samplingPercentage = -1;
-            int mapperNumber = -1;
-            for (Path item : statisticsFiles) {
-                CubeStatsReader.CubeStatsResult cubeStatsResult = new CubeStatsReader.CubeStatsResult(item,
-                        kylinConf.getCubeStatsHLLPrecision());
-                cuboidHLLMap.putAll(cubeStatsResult.getCounterMap());
-                long pGrantTotal = 0L;
-                for (HLLCounter hll : cubeStatsResult.getCounterMap().values()) {
-                    pGrantTotal += hll.getCountEstimate();
-                }
-                totalRowsBeforeMerge += pGrantTotal * cubeStatsResult.getMapperOverlapRatio();
-                grantTotal += pGrantTotal;
-                int pMapperNumber = cubeStatsResult.getMapperNumber();
-                if (pMapperNumber > 0) {
-                    if (mapperNumber < 0) {
-                        mapperNumber = pMapperNumber;
-                    } else {
-                        throw new RuntimeException(
-                                "Base cuboid has been distributed to multiple reducers at step FactDistinctColumnsReducer!!!");
-                    }
-                }
-                int pSamplingPercentage = cubeStatsResult.getPercentage();
-                if (samplingPercentage < 0) {
-                    samplingPercentage = pSamplingPercentage;
-                } else if (samplingPercentage != pSamplingPercentage) {
-                    throw new RuntimeException(
-                            "The sampling percentage should be same among all of the reducer of FactDistinctColumnsReducer!!!");
-                }
-            }
-            if (samplingPercentage < 0) {
-                logger.warn("The sampling percentage should be set!!!");
-            }
-            if (mapperNumber < 0) {
-                logger.warn("The mapper number should be set!!!");
-            }
-
-            if (logger.isDebugEnabled()) {
-                logMapperAndCuboidStatistics(cuboidHLLMap, samplingPercentage, mapperNumber, grantTotal,
-                        totalRowsBeforeMerge);
-            }
-            double mapperOverlapRatio = grantTotal == 0 ? 0 : (double) totalRowsBeforeMerge / grantTotal;
-            CubeStatsWriter.writeCuboidStatistics(hadoopConf, statisticsDir, cuboidHLLMap, samplingPercentage,
-                    mapperNumber, mapperOverlapRatio);
-
-            Path statisticsFile = new Path(statisticsDir, BatchConstants.CFG_STATISTICS_CUBOID_ESTIMATION_FILENAME);
-            logger.info(newSegment + " stats saved to hdfs " + statisticsFile);
-            
-            FSDataInputStream is = fs.open(statisticsFile);
+            FSDataInputStream is = fs.open(statisticsFilePath);
             try {
                 // put the statistics to metadata store
-                String resPath = newSegment.getStatisticsResourcePath();
-                rs.putResource(resPath, is, System.currentTimeMillis());
-                logger.info(newSegment + " stats saved to resource " + resPath);
-
-                CubingJob cubingJob = (CubingJob) getManager()
-                        .getJob(CubingExecutableUtil.getCubingJobId(this.getParams()));
-                StatisticsDecisionUtil.decideCubingAlgorithm(cubingJob, newSegment);
-                StatisticsDecisionUtil.optimizeCubingPlan(newSegment);
+                String statisticsFileName = newSegment.getStatisticsResourcePath();
+                rs.putResource(statisticsFileName, is, System.currentTimeMillis());
             } finally {
                 IOUtils.closeStream(is);
             }
 
-            return ExecuteResult.createSucceed();
+            decideCubingAlgorithm(newSegment, kylinConf);
+
+            return new ExecuteResult(ExecuteResult.State.SUCCEED, "succeed");
         } catch (IOException e) {
             logger.error("fail to save cuboid statistics", e);
-            return ExecuteResult.createError(e);
+            return new ExecuteResult(ExecuteResult.State.ERROR, e.getLocalizedMessage());
         }
     }
 
-    private void logMapperAndCuboidStatistics(Map<Long, HLLCounter> cuboidHLLMap, int samplingPercentage,
-            int mapperNumber, long grantTotal, long totalRowsBeforeMerge) throws IOException {
-        logger.debug("Total cuboid number: \t" + cuboidHLLMap.size());
-        logger.debug("Sampling percentage: \t" + samplingPercentage);
-        logger.debug("The following statistics are collected based on sampling data.");
-        logger.debug("Number of Mappers: " + mapperNumber);
+    private void decideCubingAlgorithm(CubeSegment seg, KylinConfig kylinConf) throws IOException {
+        String algPref = kylinConf.getCubeAlgorithm();
+        AlgorithmEnum alg;
+        if (AlgorithmEnum.INMEM.name().equalsIgnoreCase(algPref)) {
+            alg = AlgorithmEnum.INMEM;
+        } else if (AlgorithmEnum.LAYER.name().equalsIgnoreCase(algPref)) {
+            alg = AlgorithmEnum.LAYER;
+        } else {
+            int memoryHungryMeasures = 0;
+            for (MeasureDesc measure : seg.getCubeDesc().getMeasures()) {
+                if (measure.getFunction().getMeasureType().isMemoryHungry()) {
+                    logger.info("This cube has memory-hungry measure " + measure.getFunction().getExpression());
+                    memoryHungryMeasures++;
+                }
+            }
 
-        List<Long> allCuboids = Lists.newArrayList(cuboidHLLMap.keySet());
-        Collections.sort(allCuboids);
-        for (long i : allCuboids) {
-            logger.debug("Cuboid " + i + " row count is: \t " + cuboidHLLMap.get(i).getCountEstimate());
-        }
+            if (memoryHungryMeasures > 0) {
+                alg = AlgorithmEnum.LAYER;
+            } else if ("random".equalsIgnoreCase(algPref)) { // for testing
+                alg = new Random().nextBoolean() ? AlgorithmEnum.INMEM : AlgorithmEnum.LAYER;
+            } else { // the default
+                CubeStatsReader cubeStats = new CubeStatsReader(seg, kylinConf);
+                int mapperNumber = cubeStats.getMapperNumberOfFirstBuild();
+                int mapperNumLimit = kylinConf.getCubeAlgorithmAutoMapperLimit();
+                double mapperOverlapRatio = cubeStats.getMapperOverlapRatioOfFirstBuild();
+                double overlapThreshold = kylinConf.getCubeAlgorithmAutoThreshold();
+                logger.info("mapperNumber for " + seg + " is " + mapperNumber + " and threshold is " + mapperNumLimit);
+                logger.info("mapperOverlapRatio for " + seg + " is " + mapperOverlapRatio + " and threshold is " + overlapThreshold);
 
-        logger.debug("Sum of all the cube segments (before merge) is: \t " + totalRowsBeforeMerge);
-        logger.debug("After merge, the cube has row count: \t " + grantTotal);
-        if (grantTotal > 0) {
-            logger.debug("The mapper overlap ratio is: \t" + (double) totalRowsBeforeMerge / grantTotal);
+                // in-mem cubing is good when
+                // 1) the cluster has enough mapper slots to run in parallel
+                // 2) the mapper overlap ratio is small, meaning the shuffle of in-mem MR has advantage
+                alg = (mapperNumber <= mapperNumLimit && mapperOverlapRatio <= overlapThreshold)//
+                        ? AlgorithmEnum.INMEM : AlgorithmEnum.LAYER;
+            }
+
         }
+        logger.info("The cube algorithm for " + seg + " is " + alg);
+
+        CubingJob cubingJob = (CubingJob) getManager().getJob(CubingExecutableUtil.getCubingJobId(this.getParams()));
+        cubingJob.setAlgorithm(alg);
     }
+
 }

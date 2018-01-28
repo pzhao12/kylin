@@ -25,6 +25,7 @@ import java.util.Map.Entry;
 
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.LocalFileMetadataTestCase;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.model.JoinsTree.Chain;
 import org.junit.After;
 import org.junit.Before;
@@ -46,11 +47,11 @@ public class JoinsTreeTest extends LocalFileMetadataTestCase {
 
     @Test
     public void testBasics() {
-        DataModelManager mgr = DataModelManager.getInstance(KylinConfig.getInstanceFromEnv());
+        MetadataManager mgr = MetadataManager.getInstance(KylinConfig.getInstanceFromEnv());
         DataModelDesc model = mgr.getDataModelDesc("ci_left_join_model");
         JoinsTree joinsTree = model.getJoinsTree();
         
-        Chain chain = joinsTree.getTableChains().get("BUYER_COUNTRY");
+        Chain chain = joinsTree.tableChains.get("BUYER_COUNTRY");
         assertTrue(chain.table == model.findTable("BUYER_COUNTRY"));
         assertTrue(chain.fkSide.table == model.findTable("BUYER_ACCOUNT"));
         assertTrue(chain.fkSide.fkSide.table == model.findTable("TEST_ORDER"));
@@ -61,7 +62,7 @@ public class JoinsTreeTest extends LocalFileMetadataTestCase {
     
     @Test
     public void testMatch() {
-        DataModelManager mgr = DataModelManager.getInstance(KylinConfig.getInstanceFromEnv());
+        MetadataManager mgr = MetadataManager.getInstance(KylinConfig.getInstanceFromEnv());
         DataModelDesc model = mgr.getDataModelDesc("ci_inner_join_model");
         JoinsTree joinsTree = model.getJoinsTree();
 

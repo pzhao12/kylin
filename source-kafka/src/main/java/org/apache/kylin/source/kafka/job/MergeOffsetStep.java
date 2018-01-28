@@ -50,12 +50,12 @@ public class MergeOffsetStep extends AbstractExecutable {
     @Override
     protected ExecuteResult doWork(ExecutableContext context) throws ExecuteException {
         final CubeManager cubeManager = CubeManager.getInstance(context.getConfig());
-        final CubeInstance cubeCopy = cubeManager.getCube(CubingExecutableUtil.getCubeName(this.getParams())).latestCopyForWrite();
+        final CubeInstance cube = cubeManager.getCube(CubingExecutableUtil.getCubeName(this.getParams()));
         final String segmentId = CubingExecutableUtil.getSegmentId(this.getParams());
-        final CubeSegment segCopy = cubeCopy.getSegmentById(segmentId);
+        final CubeSegment segment = cube.getSegmentById(segmentId);
 
-        Preconditions.checkNotNull(segCopy, "Cube segment '" + segmentId + "' not found.");
-        Segments<CubeSegment> mergingSegs = cubeCopy.getMergingSegments(segCopy);
+        Preconditions.checkNotNull(segment, "Cube segment '" + segmentId + "' not found.");
+        Segments<CubeSegment> mergingSegs = cube.getMergingSegments(segment);
 
         Preconditions.checkArgument(mergingSegs.size() > 0, "Merging segment not exist.");
 
@@ -63,20 +63,20 @@ public class MergeOffsetStep extends AbstractExecutable {
         final CubeSegment first = mergingSegs.get(0);
         final CubeSegment last = mergingSegs.get(mergingSegs.size() - 1);
 
-        segCopy.setSegRange(new SegmentRange(first.getSegRange().start, last.getSegRange().end));
-        segCopy.setSourcePartitionOffsetStart(first.getSourcePartitionOffsetStart());
-        segCopy.setSourcePartitionOffsetEnd(last.getSourcePartitionOffsetEnd());
+        segment.setSegRange(new SegmentRange(first.getSegRange().start, last.getSegRange().end));
+        segment.setSourcePartitionOffsetStart(first.getSourcePartitionOffsetStart());
+        segment.setSourcePartitionOffsetEnd(last.getSourcePartitionOffsetEnd());
 
-        segCopy.setTSRange(new TSRange(mergingSegs.getTSStart(), mergingSegs.getTSEnd()));
+        segment.setTSRange(new TSRange(mergingSegs.getTSStart(), mergingSegs.getTSEnd()));
 
-        CubeUpdate update = new CubeUpdate(cubeCopy);
-        update.setToUpdateSegs(segCopy);
+        CubeUpdate cubeBuilder = new CubeUpdate(cube);
+        cubeBuilder.setToUpdateSegs(segment);
         try {
-            cubeManager.updateCube(update);
-            return ExecuteResult.createSucceed();
+            cubeManager.updateCube(cubeBuilder);
+            return new ExecuteResult(ExecuteResult.State.SUCCEED, "succeed");
         } catch (IOException e) {
             logger.error("fail to update cube segment offset", e);
-            return ExecuteResult.createError(e);
+            return new ExecuteResult(ExecuteResult.State.ERROR, e.getLocalizedMessage());
         }
     }
 

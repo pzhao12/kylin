@@ -36,8 +36,6 @@ import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlSelect;
-import org.apache.calcite.sql.SqlWith;
-import org.apache.calcite.sql.SqlWithItem;
 import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.util.SqlVisitor;
 import org.apache.calcite.sql.validate.SqlValidatorException;
@@ -48,8 +46,8 @@ import org.apache.kylin.common.util.ClassUtil;
 import org.apache.kylin.common.util.Pair;
 import org.apache.kylin.metadata.model.tool.CalciteParser;
 import org.apache.kylin.metadata.querymeta.SelectedColumnMeta;
-import org.apache.kylin.metadata.realization.NoRealizationFoundException;
-import org.apache.kylin.metadata.realization.RoutingIndicatorException;
+import org.apache.kylin.query.routing.NoRealizationFoundException;
+import org.apache.kylin.query.routing.RoutingIndicatorException;
 import org.apache.kylin.source.adhocquery.IPushDownConverter;
 import org.apache.kylin.source.adhocquery.IPushDownRunner;
 import org.slf4j.Logger;
@@ -62,17 +60,17 @@ public class PushDownUtil {
     private static final Logger logger = LoggerFactory.getLogger(PushDownUtil.class);
 
     public static Pair<List<List<String>>, List<SelectedColumnMeta>> tryPushDownSelectQuery(String project, String sql,
-            String defaultSchema, SQLException sqlException, boolean isPrepare) throws Exception {
-        return tryPushDownQuery(project, sql, defaultSchema, sqlException, true, isPrepare);
+            String defaultSchema, SQLException sqlException) throws Exception {
+        return tryPushDownQuery(project, sql, defaultSchema, sqlException, true);
     }
 
     public static Pair<List<List<String>>, List<SelectedColumnMeta>> tryPushDownNonSelectQuery(String project,
-            String sql, String defaultSchema, boolean isPrepare) throws Exception {
-        return tryPushDownQuery(project, sql, defaultSchema, null, false, isPrepare);
+            String sql, String defaultSchema) throws Exception {
+        return tryPushDownQuery(project, sql, defaultSchema, null, false);
     }
 
     private static Pair<List<List<String>>, List<SelectedColumnMeta>> tryPushDownQuery(String project, String sql,
-            String defaultSchema, SQLException sqlException, boolean isSelect, boolean isPrepare) throws Exception {
+            String defaultSchema, SQLException sqlException, boolean isSelect) throws Exception {
 
         KylinConfig kylinConfig = KylinConfig.getInstanceFromEnv();
 
@@ -112,7 +110,7 @@ public class PushDownUtil {
 
         for (String converterName : kylinConfig.getPushDownConverterClassNames()) {
             IPushDownConverter converter = (IPushDownConverter) ClassUtil.newInstance(converterName);
-            String converted = converter.convert(sql, project, defaultSchema, isPrepare);
+            String converted = converter.convert(sql, project, defaultSchema);
             if (!sql.equals(converted)) {
                 logger.info("the query is converted to {} after applying converter {}", converted, converterName);
                 sql = converted;
@@ -124,8 +122,7 @@ public class PushDownUtil {
 
         if (isSelect) {
             runner.executeQuery(sql, returnRows, returnColumnMeta);
-        }
-        if (!isSelect && !isPrepare && kylinConfig.isPushDownUpdateEnabled()) {
+        } else {
             runner.executeUpdate(sql);
         }
         return Pair.newPair(returnRows, returnColumnMeta);
@@ -133,22 +130,12 @@ public class PushDownUtil {
 
     private static boolean isExpectedCause(SQLException sqlException) {
         Preconditions.checkArgument(sqlException != null);
+
         Throwable rootCause = ExceptionUtils.getRootCause(sqlException);
-
-        //SqlValidatorException is not an excepted exception in the origin design.But in the multi pass scene,
-        //query pushdown may create tables, and the tables are not in the model, so will throw SqlValidatorException.
-        boolean isPushDownUpdateEnabled = KylinConfig.getInstanceFromEnv().isPushDownUpdateEnabled();
-
-        if (!isPushDownUpdateEnabled) {
-            return rootCause != null //
-                    && (rootCause instanceof NoRealizationFoundException //
-                            || rootCause instanceof RoutingIndicatorException); //
-        } else {
-            return (rootCause != null //
-                    && (rootCause instanceof NoRealizationFoundException //
-                            || rootCause instanceof SqlValidatorException //
-                            || rootCause instanceof RoutingIndicatorException)); //
-        }
+        return rootCause != null && //
+                (rootCause instanceof NoRealizationFoundException //
+                        || rootCause instanceof SqlValidatorException // 
+                        || rootCause instanceof RoutingIndicatorException);
     }
 
     static String schemaCompletion(String inputSql, String schema) throws SqlParseException {
@@ -205,13 +192,6 @@ public class PushDownUtil {
 
         @Override
         public SqlNode visit(SqlNodeList nodeList) {
-            for (int i = 0; i < nodeList.size(); i++) {
-                SqlNode node = nodeList.get(i);
-                if (node instanceof SqlWithItem) {
-                    SqlWithItem item = (SqlWithItem) node;
-                    item.query.accept(this);
-                }
-            }
             return null;
         }
 
@@ -229,13 +209,8 @@ public class PushDownUtil {
             }
             if (call instanceof SqlOrderBy) {
                 SqlOrderBy orderBy = (SqlOrderBy) call;
-                orderBy.query.accept(this);
+                ((SqlSelect) orderBy.query).getFrom().accept(this);
                 return null;
-            }
-            if (call instanceof SqlWith) {
-                SqlWith sqlWith = (SqlWith) call;
-                sqlWith.body.accept(this);
-                sqlWith.withList.accept(this);
             }
             if (call instanceof SqlBasicCall) {
                 SqlBasicCall node = (SqlBasicCall) call;
@@ -247,6 +222,11 @@ public class PushDownUtil {
                 node.getLeft().accept(this);
                 node.getRight().accept(this);
                 return null;
+            }
+            for (SqlNode operand : call.getOperandList()) {
+                if (operand != null) {
+                    operand.accept(this);
+                }
             }
             return null;
         }

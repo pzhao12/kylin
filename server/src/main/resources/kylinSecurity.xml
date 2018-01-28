@@ -17,11 +17,11 @@
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xmlns:context="http://www.springframework.org/schema/context"
        xmlns:util="http://www.springframework.org/schema/util" xsi:schemaLocation="http://www.springframework.org/schema/beans
-	http://www.springframework.org/schema/beans/spring-beans-4.3.xsd
+	http://www.springframework.org/schema/beans/spring-beans-4.2.xsd
 	http://www.springframework.org/schema/security
-	http://www.springframework.org/schema/security/spring-security-4.2.xsd
+	http://www.springframework.org/schema/security/spring-security-4.0.xsd
 	http://www.springframework.org/schema/util
-	http://www.springframework.org/schema/util/spring-util-4.3.xsd
+	http://www.springframework.org/schema/util/spring-util-4.2.xsd
     http://www.springframework.org/schema/context
     http://www.springframework.org/schema/context/spring-context.xsd">
 
@@ -38,9 +38,9 @@
         <property name="permissionEvaluator" ref="permissionEvaluator"/>
     </bean>
 
-    <bean id="permissionEvaluator" class="org.apache.kylin.rest.security.KylinAclPermissionEvaluator">
+    <bean id="permissionEvaluator" class="org.springframework.security.acls.AclPermissionEvaluator">
         <constructor-arg ref="aclService"/>
-        <constructor-arg ref="aclPermissionFactory"/>
+        <property name="permissionFactory" ref="aclPermissionFactory"/>
     </bean>
 
     <bean id="aclAuthorizationStrategy"
@@ -67,10 +67,6 @@
           class="org.springframework.security.acls.domain.DefaultPermissionGrantingStrategy">
         <constructor-arg ref="auditLogger"/>
     </bean>
-
-    <bean id="userService" class="org.apache.kylin.rest.service.KylinUserService" />
-
-    <bean id="userGroupService" class="org.apache.kylin.rest.service.KylinUserGroupService" />
 
     <beans profile="ldap,saml">
         <bean id="ldapSource"
@@ -101,12 +97,12 @@
                         </bean>
                     </constructor-arg>
                     <constructor-arg>
-                        <bean class="org.apache.kylin.rest.security.LDAPAuthoritiesPopulator">
+                        <bean class="org.apache.kylin.rest.security.AuthoritiesPopulator">
                             <constructor-arg index="0" ref="ldapSource"/>
                             <constructor-arg index="1"
                                              value="${kylin.security.ldap.user-group-search-base}"/>
                             <constructor-arg index="2" value="${kylin.security.acl.admin-role}"/>
-                            <property name="groupSearchFilter" value="${kylin.security.ldap.user-group-search-filter}"/>
+                            <constructor-arg index="3" value="${kylin.security.acl.default-role}"/>
                         </bean>
                     </constructor-arg>
                 </bean>
@@ -134,12 +130,12 @@
                         </bean>
                     </constructor-arg>
                     <constructor-arg>
-                        <bean class="org.apache.kylin.rest.security.LDAPAuthoritiesPopulator">
+                        <bean class="org.apache.kylin.rest.security.AuthoritiesPopulator">
                             <constructor-arg index="0" ref="ldapSource"/>
                             <constructor-arg index="1"
                                              value="${kylin.security.ldap.service-group-search-base}"/>
                             <constructor-arg index="2" value="${kylin.security.acl.admin-role}"/>
-                            <property name="groupSearchFilter" value="${kylin.security.ldap.user-group-search-filter}"/>
+                            <constructor-arg index="3" value="${kylin.security.acl.default-role}"/>
                         </bean>
                     </constructor-arg>
                 </bean>
@@ -236,8 +232,6 @@
             <scr:http-basic entry-point-ref="unauthorisedEntryPoint"/>
 
             <scr:intercept-url pattern="/api/user/authentication*/**" access="permitAll"/>
-            <scr:intercept-url pattern="/api/query/runningQueries" access="hasRole('ROLE_ADMIN')"/>
-            <scr:intercept-url pattern="/api/query/*/stop" access="hasRole('ROLE_ADMIN')"/>
             <scr:intercept-url pattern="/api/query*/**" access="isAuthenticated()"/>
             <scr:intercept-url pattern="/api/metadata*/**" access="isAuthenticated()"/>
             <scr:intercept-url pattern="/api/**/metrics" access="permitAll"/>
@@ -247,7 +241,7 @@
             <scr:intercept-url pattern="/api/models*/**" access="isAuthenticated()"/>
             <scr:intercept-url pattern="/api/streaming*/**" access="isAuthenticated()"/>
             <scr:intercept-url pattern="/api/job*/**" access="isAuthenticated()"/>
-            <scr:intercept-url pattern="/api/admin/public_config" access="permitAll"/>
+            <scr:intercept-url pattern="/api/admin/config" access="permitAll"/>
             <scr:intercept-url pattern="/api/projects" access="permitAll"/>
             <scr:intercept-url pattern="/api/admin*/**" access="hasRole('ROLE_ADMIN')"/>
             <scr:intercept-url pattern="/api/**" access="isAuthenticated()"/>
@@ -281,8 +275,6 @@
             <scr:http-basic entry-point-ref="unauthorisedEntryPoint"/>
 
             <scr:intercept-url pattern="/api/user/authentication*/**" access="permitAll"/>
-            <scr:intercept-url pattern="/api/query/runningQueries" access="hasRole('ROLE_ADMIN')"/>
-            <scr:intercept-url pattern="/api/query/*/stop" access="hasRole('ROLE_ADMIN')"/>
             <scr:intercept-url pattern="/api/query*/**" access="isAuthenticated()"/>
             <scr:intercept-url pattern="/api/metadata*/**" access="isAuthenticated()"/>
             <scr:intercept-url pattern="/api/**/metrics" access="permitAll"/>
@@ -326,7 +318,7 @@
 
         <!-- Central storage of cryptographic keys -->
         <bean id="keyManager" class="org.springframework.security.saml.key.JKSKeyManager">
-            <constructor-arg value="${kylin.security.saml.keystore-file}"/>
+            <constructor-arg value="classpath:samlKeystore.jks"/>
             <constructor-arg type="java.lang.String" value="changeit"/>
             <constructor-arg>
                 <map>
@@ -366,6 +358,7 @@
         <!-- Handler for successful logout -->
         <bean id="successLogoutHandler"
               class="org.springframework.security.web.authentication.logout.SimpleUrlLogoutSuccessHandler">
+            <property name="defaultTargetUrl" value="/login"/>
         </bean>
 
         <!-- Logger for SAML messages and events -->
@@ -410,7 +403,7 @@
                         <constructor-arg>
                             <bean class="org.opensaml.saml2.metadata.provider.FilesystemMetadataProvider">
                                 <constructor-arg>
-                                    <value type="java.io.File">${kylin.security.saml.metadata-file}</value>
+                                    <value type="java.io.File">classpath:sso_metadata.xml</value>
                                 </constructor-arg>
                                 <property name="parserPool" ref="parserPool"/>
                             </bean>
@@ -426,11 +419,11 @@
         </bean>
 
         <bean id="ldapUserAuthoritiesPopulator"
-              class="org.apache.kylin.rest.security.LDAPAuthoritiesPopulator">
+              class="org.apache.kylin.rest.security.AuthoritiesPopulator">
             <constructor-arg index="0" ref="ldapSource"/>
             <constructor-arg index="1" value="${kylin.security.ldap.user-group-search-base}"/>
             <constructor-arg index="2" value="${kylin.security.acl.admin-role}"/>
-            <property name="groupSearchFilter" value="${kylin.security.ldap.user-group-search-filter}"/>
+            <constructor-arg index="3" value="${kylin.security.acl.default-role}"/>
         </bean>
 
         <bean id="userSearch"

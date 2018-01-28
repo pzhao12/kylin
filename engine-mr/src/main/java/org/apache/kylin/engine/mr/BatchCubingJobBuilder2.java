@@ -18,10 +18,7 @@
 
 package org.apache.kylin.engine.mr;
 
-import java.util.List;
-
 import org.apache.kylin.cube.CubeSegment;
-import org.apache.kylin.cube.cuboid.CuboidUtil;
 import org.apache.kylin.engine.mr.IMRInput.IMRBatchCubingInputSide;
 import org.apache.kylin.engine.mr.IMROutput2.IMRBatchCubingOutputSide2;
 import org.apache.kylin.engine.mr.common.AbstractHadoopJob;
@@ -34,7 +31,6 @@ import org.apache.kylin.engine.mr.steps.NDCuboidJob;
 import org.apache.kylin.engine.mr.steps.SaveStatisticsStep;
 import org.apache.kylin.job.constant.ExecutableConstants;
 import org.apache.kylin.job.engine.JobEngineConfig;
-import org.apache.kylin.metadata.model.TblColRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,12 +57,7 @@ public class BatchCubingJobBuilder2 extends JobBuilderSupport {
         inputSide.addStepPhase1_CreateFlatTable(result);
 
         // Phase 2: Build Dictionary
-        result.addTask(createFactDistinctColumnsStep(jobId));
-
-        if (isEnableUHCDictStep()) {
-            result.addTask(createBuildUHCDictStep(jobId));
-        }
-
+        result.addTask(createFactDistinctColumnsStepWithStats(jobId));
         result.addTask(createBuildDictionaryStep(jobId));
         result.addTask(createSaveStatisticsStep(jobId));
         outputSide.addStepPhase2_BuildDictionary(result);
@@ -84,27 +75,13 @@ public class BatchCubingJobBuilder2 extends JobBuilderSupport {
         return result;
     }
 
-    private boolean isEnableUHCDictStep() {
-        if (!config.getConfig().isBuildUHCDictWithMREnabled()) {
-            return false;
-        }
-
-        List<TblColRef> uhcColumns = seg.getCubeDesc().getAllUHCColumns();
-        if (uhcColumns.size() == 0) {
-            return false;
-        }
-
-        return true;
-    }
-
     protected void addLayerCubingSteps(final CubingJob result, final String jobId, final String cuboidRootPath) {
-        // Don't know statistics so that tree cuboid scheduler is not determined. Determine the maxLevel at runtime
-        final int maxLevel = CuboidUtil.getLongestDepth(seg.getCuboidScheduler().getAllCuboidIds());
+        final int maxLevel = seg.getCuboidScheduler().getBuildLevel();
         // base cuboid step
         result.addTask(createBaseCuboidStep(getCuboidOutputPathsByLevel(cuboidRootPath, 0), jobId));
         // n dim cuboid steps
         for (int i = 1; i <= maxLevel; i++) {
-            result.addTask(createNDimensionCuboidStep(getCuboidOutputPathsByLevel(cuboidRootPath, i - 1), getCuboidOutputPathsByLevel(cuboidRootPath, i), i, jobId));
+            result.addTask(createNDimensionCuboidStep(getCuboidOutputPathsByLevel(cuboidRootPath, i-1), getCuboidOutputPathsByLevel(cuboidRootPath, i), i, jobId));
         }
     }
 
@@ -161,7 +138,7 @@ public class BatchCubingJobBuilder2 extends JobBuilderSupport {
 
         baseCuboidStep.setMapReduceParams(cmd.toString());
         baseCuboidStep.setMapReduceJobClass(getBaseCuboidJob());
-        //        baseCuboidStep.setCounterSaveAs(CubingJob.SOURCE_RECORD_COUNT + "," + CubingJob.SOURCE_SIZE_BYTES);
+//        baseCuboidStep.setCounterSaveAs(CubingJob.SOURCE_RECORD_COUNT + "," + CubingJob.SOURCE_SIZE_BYTES);
         return baseCuboidStep;
     }
 

@@ -144,27 +144,9 @@ public class CodahaleMetrics implements Metrics {
         for (Map.Entry<String, Metric> metric : metricRegistry.getMetrics().entrySet()) {
             metricRegistry.remove(metric.getKey());
         }
-
-        try {
-            timersLock.lock();
-            timers.invalidateAll();
-        } finally {
-            timersLock.unlock();
-        }
-
-        try {
-            countersLock.lock();
-            counters.invalidateAll();
-        } finally {
-            countersLock.unlock();
-        }
-
-        try {
-            metersLock.lock();
-            meters.invalidateAll();
-        } finally {
-            metersLock.unlock();
-        }
+        timers.invalidateAll();
+        counters.invalidateAll();
+        meters.invalidateAll();
     }
 
     @Override

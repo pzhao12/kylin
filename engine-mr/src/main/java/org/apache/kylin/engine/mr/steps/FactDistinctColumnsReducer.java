@@ -22,6 +22,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -60,6 +61,7 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
 
     private static final Logger logger = LoggerFactory.getLogger(FactDistinctColumnsReducer.class);
 
+    private List<TblColRef> columnList;
     private List<Long> baseCuboidRowCountInMappers;
     protected Map<Long, HLLCounter> cuboidHLLMap = null;
     protected long baseCuboidId;
@@ -69,10 +71,11 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
     private TblColRef col = null;
     private boolean isStatistics = false;
     private KylinConfig cubeConfig;
+    private int uhcReducerCount;
+    private Map<Integer, Integer> reducerIdToColumnIndex = new HashMap<>();
     private int taskId;
     private boolean isPartitionCol = false;
     private int rowCount = 0;
-    private FactDistinctColumnsReducerMapping reducerMapping;
 
     //local build dict
     private boolean buildDictInReducer;
@@ -95,25 +98,23 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
         CubeInstance cube = CubeManager.getInstance(config).getCube(cubeName);
         cubeConfig = cube.getConfig();
         cubeDesc = cube.getDescriptor();
+        columnList = Lists.newArrayList(cubeDesc.getAllColumnsNeedDictionaryBuilt());
 
+        boolean collectStatistics = Boolean.parseBoolean(conf.get(BatchConstants.CFG_STATISTICS_ENABLED));
         int numberOfTasks = context.getNumReduceTasks();
         taskId = context.getTaskAttemptID().getTaskID().getId();
 
-        reducerMapping = new FactDistinctColumnsReducerMapping(cube,
-                conf.getInt(BatchConstants.CFG_HLL_REDUCER_NUM, 1));
-        
-        logger.info("reducer no " + taskId + ", role play " + reducerMapping.getRolePlayOfReducer(taskId));
+        uhcReducerCount = cube.getConfig().getUHCReducerCount();
+        initReducerIdToColumnIndex(config);
 
-        if (reducerMapping.isCuboidRowCounterReducer(taskId)) {
+        if (collectStatistics && (taskId == numberOfTasks - 1)) {
             // hll
             isStatistics = true;
-            baseCuboidId = cube.getCuboidScheduler().getBaseCuboidId();
             baseCuboidRowCountInMappers = Lists.newArrayList();
             cuboidHLLMap = Maps.newHashMap();
-            samplingPercentage = Integer
-                    .parseInt(context.getConfiguration().get(BatchConstants.CFG_STATISTICS_SAMPLING_PERCENT));
+            samplingPercentage = Integer.parseInt(context.getConfiguration().get(BatchConstants.CFG_STATISTICS_SAMPLING_PERCENT));
             logger.info("Reducer " + taskId + " handling stats");
-        } else if (reducerMapping.isPartitionColReducer(taskId)) {
+        } else if (collectStatistics && (taskId == numberOfTasks - 2)) {
             // partition col
             isPartitionCol = true;
             col = cubeDesc.getModel().getPartitionDesc().getPartitionDateColumnRef();
@@ -124,7 +125,7 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
             }
         } else {
             // normal col
-            col = reducerMapping.getDictColForReducer(taskId);
+            col = columnList.get(reducerIdToColumnIndex.get(taskId));
             Preconditions.checkNotNull(col);
 
             // local build dict
@@ -132,14 +133,31 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
             if (cubeDesc.getDictionaryBuilderClass(col) != null) { // only works with default dictionary builder
                 buildDictInReducer = false;
             }
-            if (reducerMapping.getReducerNumForDictCol(col) > 1) {
-                buildDictInReducer = false; // only works if this is the only reducer of a dictionary column
+            if(config.getUHCReducerCount() > 1) {
+                int[] uhcIndex = CubeManager.getInstance(config).getUHCIndex(cubeDesc);
+                int colIndex = reducerIdToColumnIndex.get(taskId);
+                if (uhcIndex[colIndex] == 1)
+                    buildDictInReducer = false; //for UHC columns, this feature should be disabled
             }
             if (buildDictInReducer) {
                 builder = DictionaryGenerator.newDictionaryBuilder(col.getType());
-                builder.init(null, 0, null);
+                builder.init(null, 0);
             }
             logger.info("Reducer " + taskId + " handling column " + col + ", buildDictInReducer=" + buildDictInReducer);
+        }
+    }
+
+    private void initReducerIdToColumnIndex(KylinConfig config) throws IOException {
+        int[] uhcIndex = CubeManager.getInstance(config).getUHCIndex(cubeDesc);
+        int count = 0;
+        for (int i = 0; i < uhcIndex.length; i++) {
+            reducerIdToColumnIndex.put(count * (uhcReducerCount - 1) + i, i);
+            if (uhcIndex[i] == 1) {
+                for (int j = 1; j < uhcReducerCount; j++) {
+                    reducerIdToColumnIndex.put(count * (uhcReducerCount - 1) + j + i, i);
+                }
+                count++;
+            }
         }
     }
 
@@ -272,7 +290,7 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
     }
 
     private void logMapperAndCuboidStatistics(List<Long> allCuboids) throws IOException {
-        logger.info("Cuboid number for task: " + taskId + "\t" + allCuboids.size());
+        logger.info("Total cuboid number: \t" + allCuboids.size());
         logger.info("Samping percentage: \t" + samplingPercentage);
         logger.info("The following statistics are collected based on sampling data.");
         logger.info("Number of Mappers: " + baseCuboidRowCountInMappers.size());
@@ -289,8 +307,11 @@ public class FactDistinctColumnsReducer extends KylinReducer<SelfDefineSortableK
             logger.info("Cuboid " + i + " row count is: \t " + cuboidHLLMap.get(i).getCountEstimate());
         }
 
-        logger.info("Sum of row counts (before merge) is: \t " + totalRowsBeforeMerge);
-        logger.info("After merge, the row count: \t " + grantTotal);
+        logger.info("Sum of all the cube segments (before merge) is: \t " + totalRowsBeforeMerge);
+        logger.info("After merge, the cube has row count: \t " + grantTotal);
+        if (grantTotal > 0) {
+            logger.info("The mapper overlap ratio is: \t" + totalRowsBeforeMerge / grantTotal);
+        }
     }
 
 }

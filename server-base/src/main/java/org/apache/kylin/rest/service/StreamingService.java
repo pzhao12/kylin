@@ -41,7 +41,7 @@ public class StreamingService extends BasicService {
         if (StringUtils.isEmpty(table)) {
             streamingConfigs = getStreamingManager().listAllStreaming();
         } else {
-            StreamingConfig config = getStreamingManager().getStreamingConfig(table);
+            StreamingConfig config = getStreamingManager().getConfig(table);
             if (config != null) {
                 streamingConfigs.add(config);
             }
@@ -67,23 +67,23 @@ public class StreamingService extends BasicService {
     }
 
     public StreamingConfig createStreamingConfig(StreamingConfig config, String project) throws IOException {
-        aclEvaluate.checkProjectAdminPermission(project);
+        aclEvaluate.checkProjectWritePermission(project);
         Message msg = MsgPicker.getMsg();
 
         if (getStreamingManager().getStreamingConfig(config.getName()) != null) {
             throw new BadRequestException(String.format(msg.getSTREAMING_CONFIG_ALREADY_EXIST(), config.getName()));
         }
-        StreamingConfig streamingConfig = getStreamingManager().createStreamingConfig(config);
+        StreamingConfig streamingConfig = getStreamingManager().saveStreamingConfig(config);
         return streamingConfig;
     }
 
     public StreamingConfig updateStreamingConfig(StreamingConfig config, String project) throws IOException {
-        aclEvaluate.checkProjectAdminPermission(project);
+        aclEvaluate.checkProjectWritePermission(project);
         return getStreamingManager().updateStreamingConfig(config);
     }
 
     public void dropStreamingConfig(StreamingConfig config, String project) throws IOException {
-        aclEvaluate.checkProjectAdminPermission(project);
+        aclEvaluate.checkProjectWritePermission(project);
         getStreamingManager().removeStreamingConfig(config);
     }
 

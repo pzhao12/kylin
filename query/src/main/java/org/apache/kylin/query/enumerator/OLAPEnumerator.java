@@ -19,15 +19,17 @@
 package org.apache.kylin.query.enumerator;
 
 import java.util.Arrays;
+import java.util.Map;
 
 import org.apache.calcite.DataContext;
 import org.apache.calcite.linq4j.Enumerator;
+import org.apache.kylin.common.util.DateFormat;
+import org.apache.kylin.metadata.filter.CompareTupleFilter;
+import org.apache.kylin.metadata.filter.TupleFilter;
 import org.apache.kylin.metadata.realization.SQLDigest;
 import org.apache.kylin.metadata.tuple.ITuple;
 import org.apache.kylin.metadata.tuple.ITupleIterator;
 import org.apache.kylin.query.relnode.OLAPContext;
-import org.apache.kylin.shaded.htrace.org.apache.htrace.Trace;
-import org.apache.kylin.shaded.htrace.org.apache.htrace.TraceScope;
 import org.apache.kylin.storage.IStorageQuery;
 import org.apache.kylin.storage.StorageFactory;
 import org.slf4j.Logger;
@@ -84,10 +86,11 @@ public class OLAPEnumerator implements Enumerator<Object[]> {
         }
     }
 
-    private void convertCurrentRow(ITuple tuple) {
+    private Object[] convertCurrentRow(ITuple tuple) {
         // give calcite a new array every time, see details in KYLIN-2134
         Object[] values = tuple.getAllValues();
         current = Arrays.copyOf(values, values.length);
+        return current;
     }
 
     @Override
@@ -103,25 +106,47 @@ public class OLAPEnumerator implements Enumerator<Object[]> {
     }
 
     private ITupleIterator queryStorage() {
-        try (TraceScope scope = Trace.startSpan("query realization " + olapContext.realization.getCanonicalName())) {
+        logger.debug("query storage...");
 
-            logger.debug("query storage...");
-            // bind dynamic variables
-            olapContext.bindVariable(optiqContext);
+        // bind dynamic variables
+        bindVariable(olapContext.filter);
 
-            olapContext.resetSQLDigest();
-            SQLDigest sqlDigest = olapContext.getSQLDigest();
+        olapContext.resetSQLDigest();
+        SQLDigest sqlDigest = olapContext.getSQLDigest();
 
-            // query storage engine
-            IStorageQuery storageEngine = StorageFactory.createQuery(olapContext.realization);
-            ITupleIterator iterator = storageEngine.search(olapContext.storageContext, sqlDigest,
-                    olapContext.returnTupleInfo);
-            if (logger.isDebugEnabled()) {
-                logger.debug("return TupleIterator...");
-            }
-
-            return iterator;
+        // query storage engine
+        IStorageQuery storageEngine = StorageFactory.createQuery(olapContext.realization);
+        ITupleIterator iterator = storageEngine.search(olapContext.storageContext, sqlDigest, olapContext.returnTupleInfo);
+        if (logger.isDebugEnabled()) {
+            logger.debug("return TupleIterator...");
         }
+
+        return iterator;
     }
 
+    private void bindVariable(TupleFilter filter) {
+        if (filter == null) {
+            return;
+        }
+
+        for (TupleFilter childFilter : filter.getChildren()) {
+            bindVariable(childFilter);
+        }
+
+        if (filter instanceof CompareTupleFilter && optiqContext != null) {
+            CompareTupleFilter compFilter = (CompareTupleFilter) filter;
+            for (Map.Entry<String, Object> entry : compFilter.getVariables().entrySet()) {
+                String variable = entry.getKey();
+                Object value = optiqContext.get(variable);
+                if (value != null) {
+                    String str = value.toString();
+                    if (compFilter.getColumn().getType().isDateTimeFamily())
+                        str = String.valueOf(DateFormat.stringToMillis(str));
+
+                    compFilter.bindVariable(variable, str);
+                }
+
+            }
+        }
+    }
 }

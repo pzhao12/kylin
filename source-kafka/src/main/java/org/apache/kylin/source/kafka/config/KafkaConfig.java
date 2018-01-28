@@ -30,15 +30,14 @@ import org.apache.kylin.common.persistence.ResourceStore;
 import org.apache.kylin.common.persistence.RootPersistentEntity;
 import org.apache.kylin.common.persistence.Serializer;
 import org.apache.kylin.metadata.MetadataConstants;
-import org.apache.kylin.source.kafka.TimedJsonStreamParser;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.kylin.source.kafka.TimedJsonStreamParser;
 
 /**
  */
-@SuppressWarnings("serial")
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE, isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE)
 public class KafkaConfig extends RootPersistentEntity {
 
@@ -60,8 +59,8 @@ public class KafkaConfig extends RootPersistentEntity {
     @JsonProperty("parserName")
     private String parserName;
 
-    @JsonProperty("timestampField")
-    private String timestampField;
+    @JsonProperty("parserTimeStampField")
+    private String parserTimeStampField;
 
     @Deprecated
     @JsonProperty("margin")
@@ -71,11 +70,6 @@ public class KafkaConfig extends RootPersistentEntity {
     @JsonProperty("parserProperties")
     private String parserProperties;
 
-    @Override
-    public String resourceName() {
-        return name;
-    }
-    
     public String getResourcePath() {
         return concatResourcePath(name);
     }
@@ -130,12 +124,12 @@ public class KafkaConfig extends RootPersistentEntity {
         this.margin = margin;
     }
 
-    public void setTimestampField(String timestampField) {
-        this.timestampField = timestampField;
+    public void setParserTimeStampField(String parserTimeStampField) {
+        this.parserTimeStampField = parserTimeStampField;
     }
 
-    public String getTimestampField() {
-        return this.timestampField;
+    public String getParserTimeStampField() {
+        return this.parserTimeStampField;
     }
 
     public String getParserProperties() {
@@ -148,8 +142,8 @@ public class KafkaConfig extends RootPersistentEntity {
 
     public String getAllParserProperties() {
         StringBuilder sb = new StringBuilder();
-        if (timestampField != null) {
-            sb.append(TimedJsonStreamParser.PROPERTY_TS_COLUMN_NAME + "=" + timestampField);
+        if (parserTimeStampField != null) {
+            sb.append(TimedJsonStreamParser.PROPERTY_TS_COLUMN_NAME + "=" + parserTimeStampField);
             sb.append(";");
         }
         if (parserProperties != null)

@@ -21,11 +21,13 @@ package org.apache.kylin.source.hive;
 import java.io.IOException;
 import java.util.List;
 
+import org.apache.hadoop.hive.ql.CommandNeedRetryException;
+
 public interface IHiveClient {
 
-    void executeHQL(String hql) throws IOException;
+    void executeHQL(String hql) throws CommandNeedRetryException, IOException;
 
-    void executeHQL(String[] hqls) throws IOException;
+    void executeHQL(String[] hqls) throws CommandNeedRetryException, IOException;
     
     HiveTableMeta getHiveTableMeta(String database, String tableName) throws Exception;
 

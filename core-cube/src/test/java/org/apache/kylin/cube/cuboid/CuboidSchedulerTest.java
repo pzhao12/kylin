@@ -31,6 +31,7 @@ import java.util.Set;
 import org.apache.kylin.common.util.LocalFileMetadataTestCase;
 import org.apache.kylin.cube.CubeDescManager;
 import org.apache.kylin.cube.model.CubeDesc;
+import org.apache.kylin.metadata.MetadataManager;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,6 +47,7 @@ public class CuboidSchedulerTest extends LocalFileMetadataTestCase {
     @Before
     public void setUp() throws Exception {
         this.createTestMetadata();
+        MetadataManager.clearCache();
     }
 
     @After
@@ -328,7 +330,7 @@ public class CuboidSchedulerTest extends LocalFileMetadataTestCase {
                 f.renameTo(new File(path.substring(0, path.length() - 4)));
             }
         }
-        getTestConfig().clearManagers();
+        CubeDescManager.clearCache();
         CubeDesc cube = getCubeDescManager().getCubeDesc("ut_large_dimension_number");
         CuboidScheduler scheduler = cube.getInitialCuboidScheduler();
 

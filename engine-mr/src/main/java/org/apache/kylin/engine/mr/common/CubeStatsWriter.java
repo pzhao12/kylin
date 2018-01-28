@@ -20,6 +20,7 @@ package org.apache.kylin.engine.mr.common;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +35,6 @@ import org.apache.kylin.common.util.Bytes;
 import org.apache.kylin.measure.BufferedMeasureCodec;
 import org.apache.kylin.measure.hllc.HLLCounter;
 
-import com.google.common.collect.Lists;
-
 public class CubeStatsWriter {
 
     public static void writeCuboidStatistics(Configuration conf, Path outputPath, //
@@ -46,32 +45,17 @@ public class CubeStatsWriter {
     public static void writeCuboidStatistics(Configuration conf, Path outputPath, //
             Map<Long, HLLCounter> cuboidHLLMap, int samplingPercentage, int mapperNumber, double mapperOverlapRatio) throws IOException {
         Path seqFilePath = new Path(outputPath, BatchConstants.CFG_STATISTICS_CUBOID_ESTIMATION_FILENAME);
-        writeCuboidStatisticsInner(conf, seqFilePath, cuboidHLLMap, samplingPercentage, mapperNumber,
-                mapperOverlapRatio);
-    }
 
-    public static void writePartialCuboidStatistics(Configuration conf, Path outputPath, //
-            Map<Long, HLLCounter> cuboidHLLMap, int samplingPercentage, int mapperNumber, double mapperOverlapRatio,
-            int shard) throws IOException {
-        Path seqFilePath = new Path(outputPath, BatchConstants.CFG_STATISTICS_CUBOID_ESTIMATION_FILENAME + "_" + shard);
-        writeCuboidStatisticsInner(conf, seqFilePath, cuboidHLLMap, samplingPercentage, mapperNumber,
-                mapperOverlapRatio);
-    }
-
-    private static void writeCuboidStatisticsInner(Configuration conf, Path outputFilePath, //
-            Map<Long, HLLCounter> cuboidHLLMap, int samplingPercentage, int mapperNumber, double mapperOverlapRatio)
-            throws IOException {
-        List<Long> allCuboids = Lists.newArrayList();
+        List<Long> allCuboids = new ArrayList<Long>();
         allCuboids.addAll(cuboidHLLMap.keySet());
         Collections.sort(allCuboids);
 
         ByteBuffer valueBuf = ByteBuffer.allocate(BufferedMeasureCodec.DEFAULT_BUFFER_SIZE);
-        SequenceFile.Writer writer = SequenceFile.createWriter(conf, SequenceFile.Writer.file(outputFilePath),
-                SequenceFile.Writer.keyClass(LongWritable.class), SequenceFile.Writer.valueClass(BytesWritable.class));
+        SequenceFile.Writer writer = SequenceFile.createWriter(conf, SequenceFile.Writer.file(seqFilePath), SequenceFile.Writer.keyClass(LongWritable.class), SequenceFile.Writer.valueClass(BytesWritable.class));
         try {
             // mapper overlap ratio at key -1
             writer.append(new LongWritable(-1), new BytesWritable(Bytes.toBytes(mapperOverlapRatio)));
-
+            
             // mapper number at key -2
             writer.append(new LongWritable(-2), new BytesWritable(Bytes.toBytes(mapperNumber)));
 
@@ -88,4 +72,5 @@ public class CubeStatsWriter {
             IOUtils.closeQuietly(writer);
         }
     }
+
 }

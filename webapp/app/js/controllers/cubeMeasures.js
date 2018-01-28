@@ -18,7 +18,7 @@
 
 'use strict';
 
-KylinApp.controller('CubeMeasuresCtrl', function ($scope, $modal,MetaModel,cubesManager,CubeDescModel,SweetAlert,VdmUtil,TableModel,cubeConfig,modelsManager,kylinConfig) {
+KylinApp.controller('CubeMeasuresCtrl', function ($scope, $modal,MetaModel,cubesManager,CubeDescModel,SweetAlert,VdmUtil,TableModel,cubeConfig,modelsManager) {
   $scope.num=0;
   $scope.convertedColumns=[];
   $scope.groupby=[];
@@ -399,14 +399,10 @@ KylinApp.controller('CubeMeasuresCtrl', function ($scope, $modal,MetaModel,cubes
           if(colType==="tinyint"||colType==="smallint"||colType==="int"||colType==="bigint"||colType==="integer"){
             $scope.newMeasure.function.returntype= 'bigint';
           }else{
-            if(colType.indexOf('decimal')!=-1){
-              var returnRegex = new RegExp('(\\w+)(?:\\((\\w+?)(?:\\,(\\w+?))?\\))?')
-              var returnValue = returnRegex.exec(colType)
-              var precision = 19
-              var scale = returnValue[3]
-              $scope.newMeasure.function.returntype= 'decimal(' + precision + ',' + scale + ')';
+           if(colType.indexOf('decimal')!=-1||colType==="double"||colType==="float"){
+              $scope.newMeasure.function.returntype= 'decimal(19,4)';
             }else{
-              $scope.newMeasure.function.returntype= colType;
+              $scope.newMeasure.function.returntype= 'decimal(14,0)';
             }
           }
           break;
@@ -435,14 +431,6 @@ KylinApp.controller('CubeMeasuresCtrl', function ($scope, $modal,MetaModel,cubes
       // emit measures edit event in order to re-generate advanced dict.
       $scope.$emit('MeasuresEdited');
     });
-  }
-
-  $scope.isMeasureUnHidden = function(measure) {
-    if (kylinConfig.getHiddenMeasures().indexOf(measure) == -1) {
-      return true;
-    } else {
-      return false;
-    }
   }
 
 });

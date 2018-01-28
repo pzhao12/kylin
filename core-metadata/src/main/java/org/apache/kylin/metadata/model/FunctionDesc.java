@@ -28,7 +28,6 @@ import java.util.Set;
 import org.apache.kylin.measure.MeasureType;
 import org.apache.kylin.measure.MeasureTypeFactory;
 import org.apache.kylin.measure.basic.BasicMeasureType;
-import org.apache.kylin.measure.percentile.PercentileMeasureType;
 import org.apache.kylin.metadata.datatype.DataType;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
@@ -59,7 +58,6 @@ public class FunctionDesc implements Serializable {
     public static final String FUNC_MAX = "MAX";
     public static final String FUNC_COUNT = "COUNT";
     public static final String FUNC_COUNT_DISTINCT = "COUNT_DISTINCT";
-    public static final String FUNC_PERCENTILE = "PERCENTILE_APPROX";
     public static final Set<String> BUILT_IN_AGGREGATIONS = Sets.newHashSet();
 
     static {
@@ -68,7 +66,6 @@ public class FunctionDesc implements Serializable {
         BUILT_IN_AGGREGATIONS.add(FUNC_MIN);
         BUILT_IN_AGGREGATIONS.add(FUNC_SUM);
         BUILT_IN_AGGREGATIONS.add(FUNC_COUNT_DISTINCT);
-        BUILT_IN_AGGREGATIONS.add(FUNC_PERCENTILE);
     }
 
     public static final String PARAMETER_TYPE_CONSTANT = "constant";
@@ -91,10 +88,6 @@ public class FunctionDesc implements Serializable {
 
     public void init(DataModelDesc model) {
         expression = expression.toUpperCase();
-        if (expression.equals(PercentileMeasureType.FUNC_PERCENTILE)) {
-            expression = PercentileMeasureType.FUNC_PERCENTILE_APPROX; // for backward compatibility
-        }
-
         returnDataType = DataType.getType(returnType);
 
         for (ParameterDesc p = parameter; p != null; p = p.getNextParameter()) {
@@ -110,7 +103,6 @@ public class FunctionDesc implements Serializable {
         if (isDimensionAsMetric && isCountDistinct()) {
             // create DimCountDis
             measureType = MeasureTypeFactory.createNoRewriteFieldsMeasureType(getExpression(), getReturnDataType());
-            returnDataType = DataType.getType("dim_dc");
         } else {
             measureType = MeasureTypeFactory.create(getExpression(), getReturnDataType());
         }
@@ -144,7 +136,9 @@ public class FunctionDesc implements Serializable {
     }
 
     public String getRewriteFieldName() {
-        if (isCount()) {
+        if (isSum()) {
+            return getParameter().getValue();
+        } else if (isCount()) {
             return "_KY_" + "COUNT__"; // ignores parameter, count(*), count(1), count(col) are all the same
         } else if (isCountDistinct()) {
             return "_KY_" + getFullExpressionInAlphabetOrder().replaceAll("[(),. ]", "_");
@@ -154,19 +148,12 @@ public class FunctionDesc implements Serializable {
     }
 
     public DataType getRewriteFieldType() {
-        if (getMeasureType() instanceof BasicMeasureType) {
-            if (isMax() || isMin()) {
-                return parameter.getColRefs().get(0).getType();
-            } else if (isSum()) {
-                return parameter.getColRefs().get(0).getType();
-            } else if (isCount()) {
-                return DataType.getType("bigint");
-            } else {
-                throw new IllegalArgumentException("unknown measure type " + getMeasureType());
-            }
-        } else {
+        if (isSum() || isMax() || isMin())
+            return parameter.getColRefs().get(0).getType();
+        else if (getMeasureType() instanceof BasicMeasureType)
+            return returnDataType;
+        else
             return DataType.ANY;
-        }
     }
 
     public ColumnDesc newFakeRewriteColumn(TableDesc sourceTable) {
@@ -246,16 +233,8 @@ public class FunctionDesc implements Serializable {
         return expression;
     }
 
-    public void setExpression(String expression) {
-        this.expression = expression;
-    }
-    
     public ParameterDesc getParameter() {
         return parameter;
-    }
-
-    public void setParameter(ParameterDesc parameter) {
-        this.parameter = parameter;
     }
 
     public int getParameterCount() {
@@ -329,8 +308,7 @@ public class FunctionDesc implements Serializable {
 
     @Override
     public String toString() {
-        return "FunctionDesc [expression=" + expression + ", parameter=" + parameter + ", returnType=" + returnType
-                + "]";
+        return "FunctionDesc [expression=" + expression + ", parameter=" + parameter + ", returnType=" + returnType + "]";
     }
 
 }

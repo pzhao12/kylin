@@ -29,7 +29,7 @@ import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.OptionsHelper;
 import org.apache.kylin.cube.CubeDescManager;
 import org.apache.kylin.cube.CubeManager;
-import org.apache.kylin.metadata.model.DataModelManager;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.project.ProjectManager;
 import org.apache.kylin.tool.util.ToolUtil;
 import org.slf4j.Logger;
@@ -59,12 +59,14 @@ public class KylinLogExtractor extends AbstractInfoExtractor {
     private void beforeExtract() {
         // reload metadata before extract diagnosis info
         logger.info("Start to reload metadata from diagnosis.");
-        
-        config.clearManagers();
 
+        CubeManager.clearCache();
         CubeManager.getInstance(config);
+        CubeDescManager.clearCache();
         CubeDescManager.getInstance(config);
-        DataModelManager.getInstance(config);
+        MetadataManager.clearCache();
+        MetadataManager.getInstance(config);
+        ProjectManager.clearCache();
         ProjectManager.getInstance(config);
     }
 

@@ -41,6 +41,8 @@ import org.springframework.web.bind.annotation.ResponseBody;
 /**
  * Admin Controller is defined as Restful API entrance for UI.
  * 
+ * @author jianliu
+ * 
  */
 @Controller
 @RequestMapping(value = "/admin")
@@ -73,19 +75,11 @@ public class AdminController extends BasicController {
     @RequestMapping(value = "/config", method = { RequestMethod.GET }, produces = { "application/json" })
     @ResponseBody
     public GeneralResponse getConfig() throws IOException {
-        String config = KylinConfig.getInstanceFromEnv().exportAllToString();
+        String config = adminService.exportToString();
+
         GeneralResponse configRes = new GeneralResponse();
         configRes.put("config", config);
 
-        return configRes;
-    }
-
-    @RequestMapping(value = "/public_config", method = { RequestMethod.GET }, produces = { "application/json" })
-    @ResponseBody
-    public GeneralResponse getPublicConfig() throws IOException {
-        final String config = adminService.getPublicConfig();
-        GeneralResponse configRes = new GeneralResponse();
-        configRes.put("config", config);
         return configRes;
     }
 
@@ -103,7 +97,7 @@ public class AdminController extends BasicController {
 
     @RequestMapping(value = "/config", method = { RequestMethod.PUT }, produces = { "application/json" })
     public void updateKylinConfig(@RequestBody UpdateConfigRequest updateConfigRequest) {
-        adminService.updateConfig(updateConfigRequest.getKey(), updateConfigRequest.getValue());
+        KylinConfig.getInstanceFromEnv().setProperty(updateConfigRequest.getKey(), updateConfigRequest.getValue());
     }
 
     public void setAdminService(AdminService adminService) {

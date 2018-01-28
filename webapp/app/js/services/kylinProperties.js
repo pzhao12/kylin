@@ -23,7 +23,7 @@ KylinApp.service('kylinConfig', function (AdminService, $log) {
 
 
   this.init = function () {
-    return AdminService.publicConfig({}, function (config) {
+    return AdminService.config({}, function (config) {
       _config = config.config;
     }, function (e) {
       $log.error("failed to load kylin.properties" + e);
@@ -31,11 +31,11 @@ KylinApp.service('kylinConfig', function (AdminService, $log) {
   };
 
   this.getProperty = function (name) {
-    var keyIndex = _config.indexOf('\n' + name + '=');
+    var keyIndex = _config.indexOf(name);
     var keyLength = name.length;
     var partialResult = _config.substr(keyIndex);
     var preValueIndex = partialResult.indexOf("=");
-    var sufValueIndex = partialResult.indexOf("\n", 2);
+    var sufValueIndex = partialResult.indexOf("\n");
     return partialResult.substring(preValueIndex + 1, sufValueIndex);
 
   }
@@ -105,56 +105,6 @@ KylinApp.service('kylinConfig', function (AdminService, $log) {
     } catch (e) {
       $log.error("failed to load kylin web info");
     }
-  }
-
-  this.isExternalAclEnabled = function() {
-    var status = this.getProperty("kylin.server.external-acl-provider").trim();
-    if (status == '') {
-      return false;
-    }
-    return true;
-  }
-
-  this.isAdminExportAllowed = function(){
-    var status = this.getProperty("kylin.web.export-allow-admin").trim();
-    if(status!=='false'){
-      return true;
-    }
-    return false;
-  }
-
-  this.isNonAdminExportAllowed = function(){
-    var status = this.getProperty("kylin.web.export-allow-other").trim();
-    if(status!=='false'){
-      return true;
-    }
-    return false;
-  }
-
-  this.getHiddenMeasures = function() {
-    var hide_measures = this.getProperty("kylin.web.hide-measures").replace(/\s/g,"").toUpperCase();
-    return hide_measures.split(",")
-  }
-
-
-  this.getQueryTimeout = function () {
-    var queryTimeout = parseInt(this.getProperty("kylin.web.query-timeout"));
-    if (isNaN(queryTimeout)) {
-       queryTimeout = 300000;
-    }
-    return queryTimeout;
-  }
-
-  this.isInitialized = function() {
-    return angular.isString(_config);
-  }
-
-  this.isAutoMigrateCubeEnabled = function(){
-    var status = this.getProperty("kylin.tool.auto-migrate-cube.enabled").trim();
-    if(status && status =='true'){
-      return true;
-    }
-    return false;
   }
 
 });

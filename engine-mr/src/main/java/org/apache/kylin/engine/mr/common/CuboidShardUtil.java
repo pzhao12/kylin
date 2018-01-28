@@ -21,7 +21,6 @@ package org.apache.kylin.engine.mr.common;
 import java.io.IOException;
 import java.util.Map;
 
-import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
 import org.apache.kylin.cube.CubeSegment;
 import org.apache.kylin.cube.CubeUpdate;
@@ -42,16 +41,12 @@ public class CuboidShardUtil {
                 filtered.put(entry.getKey(), entry.getValue());
             }
         }
-        
-        // work on copy instead of cached objects
-        CubeInstance cubeCopy = segment.getCubeInstance().latestCopyForWrite();
-        CubeSegment segCopy = cubeCopy.getSegmentById(segment.getUuid());
 
-        segCopy.setCuboidShardNums(filtered);
-        segCopy.setTotalShards(totalShards);
+        segment.setCuboidShardNums(filtered);
+        segment.setTotalShards(totalShards);
 
-        CubeUpdate update = new CubeUpdate(cubeCopy);
-        update.setToUpdateSegs(segCopy);
-        cubeManager.updateCube(update);
+        CubeUpdate cubeBuilder = new CubeUpdate(segment.getCubeInstance());
+        cubeBuilder.setToUpdateSegs(segment);
+        cubeManager.updateCube(cubeBuilder);
     }
 }

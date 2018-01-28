@@ -18,6 +18,9 @@
 
 package org.apache.kylin.rest.controller;
 
+import java.io.IOException;
+import java.util.List;
+
 import org.apache.kylin.rest.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,4 +75,10 @@ public class UserController extends BasicController {
 
         return null;
     }
+
+    @RequestMapping(value = "/authentication/authorities", method = RequestMethod.GET, produces = { "application/json" })
+    public List<String> getAuthorities() throws IOException {
+        return userService.listUserAuthorities();
+    }
+
 }

@@ -22,8 +22,10 @@ import java.util.Collections;
 
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.LocalFileMetadataTestCase;
+import org.apache.kylin.cube.CubeDescManager;
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.project.ProjectInstance;
 import org.apache.kylin.metadata.project.ProjectManager;
 import org.apache.kylin.metadata.project.RealizationEntry;
@@ -64,7 +66,9 @@ public class CubeMetaIngesterTest extends LocalFileMetadataTestCase {
         Assert.assertTrue(project.getModels().contains("cloned_model"));
         Assert.assertTrue(project.getRealizationEntries().contains(RealizationEntry.create(RealizationType.CUBE, "cloned_cube")));
 
-        getTestConfig().clearManagers();
+        MetadataManager.clearCache();
+        CubeDescManager.clearCache();
+        CubeManager.clearCache();
         CubeInstance instance = CubeManager.getInstance(KylinConfig.getInstanceFromEnv()).getCube("cloned_cube");
         Assert.assertTrue(instance != null);
     }
@@ -79,7 +83,9 @@ public class CubeMetaIngesterTest extends LocalFileMetadataTestCase {
         Assert.assertTrue(project.getModels().contains("benchmark_model"));
         Assert.assertTrue(project.getRealizationEntries().contains(RealizationEntry.create(RealizationType.CUBE, "benchmark_cube")));
 
-        getTestConfig().clearManagers();
+        MetadataManager.clearCache();
+        CubeDescManager.clearCache();
+        CubeManager.clearCache();
         CubeInstance instance = CubeManager.getInstance(KylinConfig.getInstanceFromEnv()).getCube("benchmark_cube");
         Assert.assertTrue(instance != null);
     }

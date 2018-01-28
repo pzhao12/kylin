@@ -44,7 +44,7 @@ import org.apache.kylin.common.util.Pair;
 import org.apache.kylin.rest.security.AclConstant;
 import org.apache.kylin.rest.service.AclService;
 import org.apache.kylin.rest.service.AclTableMigrationTool;
-import org.apache.kylin.rest.service.KylinUserService;
+import org.apache.kylin.rest.service.UserService;
 import org.apache.kylin.rest.util.Serializer;
 import org.junit.After;
 import org.junit.Before;
@@ -128,13 +128,12 @@ public class ITAclTableMigrationToolTest extends HBaseMetadataTestCase {
         Admin hbaseAdmin = new HBaseAdmin(conf);
         creatTable(hbaseAdmin, conf, aclTable, new String[] { AclConstant.ACL_INFO_FAMILY, AclConstant.ACL_ACES_FAMILY });
         creatTable(hbaseAdmin, conf, userTable, new String[] { AclConstant.USER_AUTHORITY_FAMILY });
-        hbaseAdmin.close();
     }
 
     private void addRecordsToTable() throws Exception {
         Table htable = HBaseConnection.get(kylinConfig.getStorageUrl()).getTable(userTable);
         Pair<byte[], byte[]> pair = getRandomUserRecord();
-        Put put = new Put(pair.getFirst());
+        Put put = new Put(pair.getKey());
         put.addColumn(Bytes.toBytes(AclConstant.USER_AUTHORITY_FAMILY), Bytes.toBytes(AclConstant.USER_AUTHORITY_COLUMN), pair.getSecond());
         htable.put(put);
     }
@@ -142,7 +141,7 @@ public class ITAclTableMigrationToolTest extends HBaseMetadataTestCase {
     private void cleanUpMetastoreData(String storeName) throws IOException {
         String oldUrl = ResourceStoreTest.replaceMetadataUrl(kylinConfig, STORE_WITH_OLD_TABLE + "@hbase");
         ResourceStore store = ResourceStore.getStore(kylinConfig);
-        Set<String> allRes1 = store.listResources(KylinUserService.DIR_PREFIX);
+        Set<String> allRes1 = store.listResources(UserService.DIR_PREFIX);
         Set<String> allRes2 = store.listResources(AclService.DIR_PREFIX);
         if (allRes1 != null) {
             for (String res : allRes1) {
@@ -171,7 +170,6 @@ public class ITAclTableMigrationToolTest extends HBaseMetadataTestCase {
                 hbaseAdmin.disableTable(userTable);
             hbaseAdmin.deleteTable(userTable);
         }
-        hbaseAdmin.close();
     }
 
     private void creatTable(Admin admin, Configuration conf, TableName tableName, String[] family) throws IOException {

@@ -21,8 +21,6 @@ package org.apache.kylin.common;
 import java.util.Map;
 import java.util.Properties;
 
-import org.apache.commons.lang3.text.StrSubstitutor;
-
 /**
  * Extends a KylinConfig with additional overrides.
  */
@@ -41,7 +39,7 @@ public class KylinConfigExt extends KylinConfig {
     }
 
     private KylinConfigExt(KylinConfig base, Map<String, String> overrides) {
-        super(base.getRawAllProperties(), true);
+        super(base.getAllProperties(), true);
         if (base.getClass() != KylinConfig.class) {
             throw new IllegalArgumentException();
         }
@@ -50,7 +48,7 @@ public class KylinConfigExt extends KylinConfig {
     }
 
     private KylinConfigExt(KylinConfigExt ext, Map<String, String> overrides) {
-        super(ext.base.getRawAllProperties(), true);
+        super(ext.base.getAllProperties(), true);
         this.base = ext.base;
         this.overrides = BCC.check(overrides);
     }
@@ -58,22 +56,22 @@ public class KylinConfigExt extends KylinConfig {
     protected String getOptional(String prop, String dft) {
         String value = overrides.get(prop);
         if (value != null)
-            return   StrSubstitutor.replace(value, System.getenv());
+            return value;
         else
             return super.getOptional(prop, dft);
     }
 
     protected Properties getAllProperties() {
         Properties result = new Properties();
-        result.putAll(super.getRawAllProperties());
+        result.putAll(super.getAllProperties());
         result.putAll(overrides);
         return result;
     }
-
+    
     public Map<String, String> getExtendedOverrides() {
         return overrides;
     }
-
+    
     @Override
     public KylinConfig base() {
         return this.base;

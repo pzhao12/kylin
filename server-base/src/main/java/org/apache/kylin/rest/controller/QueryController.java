@@ -25,22 +25,15 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeSet;
 
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.io.IOUtils;
-import org.apache.kylin.common.KylinConfig;
-import org.apache.kylin.common.QueryContext;
-import org.apache.kylin.common.QueryContextFacade;
 import org.apache.kylin.common.debug.BackdoorToggles;
 import org.apache.kylin.metadata.querymeta.SelectedColumnMeta;
 import org.apache.kylin.metadata.querymeta.TableMeta;
-import org.apache.kylin.rest.exception.ForbiddenException;
 import org.apache.kylin.rest.exception.InternalErrorException;
 import org.apache.kylin.rest.model.Query;
-import org.apache.kylin.rest.msg.Message;
-import org.apache.kylin.rest.msg.MsgPicker;
 import org.apache.kylin.rest.request.MetaRequest;
 import org.apache.kylin.rest.request.PrepareSqlRequest;
 import org.apache.kylin.rest.request.SQLRequest;
@@ -57,7 +50,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.supercsv.io.CsvListWriter;
 import org.supercsv.io.ICsvListWriter;
@@ -82,7 +74,7 @@ public class QueryController extends BasicController {
 
     @RequestMapping(value = "/query", method = RequestMethod.POST, produces = { "application/json" })
     @ResponseBody
-    public SQLResponse query(@RequestBody PrepareSqlRequest sqlRequest) {
+    public SQLResponse query(@RequestBody SQLRequest sqlRequest) {
         return queryService.doQueryWithCache(sqlRequest);
     }
 
@@ -118,22 +110,14 @@ public class QueryController extends BasicController {
 
     @RequestMapping(value = "/saved_queries", method = RequestMethod.GET, produces = { "application/json" })
     @ResponseBody
-    public List<Query> getQueries(@RequestParam(value = "project", required = false) String project) throws IOException {
+    public List<Query> getQueries() throws IOException {
         String creator = SecurityContextHolder.getContext().getAuthentication().getName();
-        return queryService.getQueries(creator, project);
+        return queryService.getQueries(creator);
     }
 
     @RequestMapping(value = "/query/format/{format}", method = RequestMethod.GET, produces = { "application/json" })
     @ResponseBody
     public void downloadQueryResult(@PathVariable String format, SQLRequest sqlRequest, HttpServletResponse response) {
-        KylinConfig config = queryService.getConfig();
-        Message msg = MsgPicker.getMsg();
-
-        if ((isAdmin() && !config.isAdminUserExportAllowed())
-                || (!isAdmin() && !config.isNoneAdminUserExportAllowed())) {
-            throw new ForbiddenException(msg.getEXPORT_RESULT_NOT_ALLOWED());
-        }
-
         SQLResponse result = queryService.doQueryWithCache(sqlRequest);
         response.setContentType("text/" + format + ";charset=utf-8");
 
@@ -173,30 +157,6 @@ public class QueryController extends BasicController {
         } catch (SQLException e) {
             throw new InternalErrorException(e.getLocalizedMessage(), e);
         }
-    }
-
-    /**
-     *
-     * @param runTimeMoreThan in seconds
-     * @return
-     */
-    @RequestMapping(value = "/query/runningQueries", method = RequestMethod.GET)
-    @ResponseBody
-    public TreeSet<QueryContext> getRunningQueries(
-            @RequestParam(value = "runTimeMoreThan", required = false, defaultValue = "-1") int runTimeMoreThan) {
-        if (runTimeMoreThan == -1) {
-            return QueryContextFacade.getAllRunningQueries();
-        } else {
-            return QueryContextFacade.getLongRunningQueries(runTimeMoreThan * 1000);
-        }
-    }
-
-    @RequestMapping(value = "/query/{queryId}/stop", method = RequestMethod.PUT)
-    @ResponseBody
-    public void stopQuery(@PathVariable String queryId) {
-        final String user = SecurityContextHolder.getContext().getAuthentication().getName();
-        logger.info("{} tries to stop the query: {}, but not guaranteed to succeed.", user, queryId);
-        QueryContextFacade.stopQuery(queryId, "stopped by " + user);
     }
 
     public void setQueryService(QueryService queryService) {

@@ -48,10 +48,6 @@ public class PercentileSerializer extends DataTypeSerializer<PercentileCounter> 
         return current().getBytesEstimate();
     }
 
-    protected double getStorageBytesEstimate(double count) {
-        return current().getBytesEstimate(count);
-    }
-
     private PercentileCounter current() {
         if (current == null) {
             current = new ThreadLocal<>();
@@ -72,7 +68,7 @@ public class PercentileSerializer extends DataTypeSerializer<PercentileCounter> 
 
     @Override
     public PercentileCounter deserialize(ByteBuffer in) {
-        PercentileCounter counter = new PercentileCounter(compression);
+        PercentileCounter counter = current();
         counter.readRegisters(in);
         return counter;
     }

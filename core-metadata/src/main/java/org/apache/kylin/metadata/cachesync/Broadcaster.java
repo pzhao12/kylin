@@ -24,6 +24,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -35,7 +37,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.lang.StringUtils;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.restclient.RestClient;
-import org.apache.kylin.common.util.ClassUtil;
 import org.apache.kylin.common.util.DaemonThreadFactory;
 import org.apache.kylin.metadata.project.ProjectManager;
 import org.slf4j.Logger;
@@ -64,15 +65,40 @@ public class Broadcaster {
     public static final String SYNC_ALL = "all"; // the special entity to indicate clear all
     public static final String SYNC_PRJ_SCHEMA = "project_schema"; // the special entity to indicate project schema has change, e.g. table/model/cube_desc update
     public static final String SYNC_PRJ_DATA = "project_data"; // the special entity to indicate project data has change, e.g. cube/raw_table update
-    public static final String SYNC_PRJ_ACL = "project_acl"; // the special entity to indicate query ACL has change, e.g. table_acl/learn_kylin update
+
+    // static cached instances
+    private static final ConcurrentMap<KylinConfig, Broadcaster> CACHE = new ConcurrentHashMap<KylinConfig, Broadcaster>();
 
     public static Broadcaster getInstance(KylinConfig config) {
-        return config.getManager(Broadcaster.class);
+
+        synchronized (CACHE) {
+            Broadcaster r = CACHE.get(config);
+            if (r != null) {
+                return r;
+            }
+
+            r = new Broadcaster(config);
+            CACHE.put(config, r);
+            if (CACHE.size() > 1) {
+                logger.warn("More than one singleton exist");
+            }
+            return r;
+        }
     }
 
-    // called by reflection
-    static Broadcaster newInstance(KylinConfig config) {
-        return new Broadcaster(config);
+    // call Broadcaster.getInstance().notifyClearAll() to clear cache
+    public static void clearCache() {
+        synchronized (CACHE) {
+            CACHE.clear();
+        }
+    }
+
+    public static void clearCache(KylinConfig kylinConfig) {
+        if (kylinConfig != null) {
+            synchronized (CACHE) {
+                CACHE.remove(kylinConfig);
+            }
+        }
     }
 
     // ============================================================================
@@ -80,19 +106,12 @@ public class Broadcaster {
     static final Map<String, List<Listener>> staticListenerMap = Maps.newConcurrentMap();
 
     private KylinConfig config;
-    private ExecutorService announceMainLoop;
-    private ExecutorService announceThreadPool;
-    private SyncErrorHandler syncErrorHandler;
     private BlockingDeque<BroadcastEvent> broadcastEvents = new LinkedBlockingDeque<>();
     private Map<String, List<Listener>> listenerMap = Maps.newConcurrentMap();
-    private AtomicLong counter = new AtomicLong(); // a counter for testing purpose
-    
+    private AtomicLong counter = new AtomicLong();
+
     private Broadcaster(final KylinConfig config) {
         this.config = config;
-        this.syncErrorHandler = getSyncErrorHandler(config);
-        this.announceMainLoop = Executors.newSingleThreadExecutor(new DaemonThreadFactory());
-        this.announceThreadPool = new ThreadPoolExecutor(1, 10, 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<Runnable>(), new DaemonThreadFactory());
 
         final String[] nodes = config.getRestServers();
         if (nodes == null || nodes.length < 1) {
@@ -100,15 +119,16 @@ public class Broadcaster {
         }
         logger.debug(nodes.length + " nodes in the cluster: " + Arrays.toString(nodes));
 
-        announceMainLoop.execute(new Runnable() {
+        Executors.newSingleThreadExecutor(new DaemonThreadFactory()).execute(new Runnable() {
             @Override
             public void run() {
                 final Map<String, RestClient> restClientMap = Maps.newHashMap();
+                final ExecutorService wipingCachePool = new ThreadPoolExecutor(1, 10, 60L, TimeUnit.SECONDS,
+                        new LinkedBlockingQueue<Runnable>(), new DaemonThreadFactory());
 
-                while (!announceThreadPool.isShutdown()) {
+                while (true) {
                     try {
                         final BroadcastEvent broadcastEvent = broadcastEvents.takeFirst();
-
                         String[] restServers = config.getRestServers();
                         logger.debug("Servers in the cluster: " + Arrays.toString(restServers));
                         for (final String node : restServers) {
@@ -117,27 +137,16 @@ public class Broadcaster {
                             }
                         }
 
-                        String toWhere = broadcastEvent.getTargetNode();
-                        if (toWhere == null)
-                            toWhere = "all";
-                        logger.debug("Announcing new broadcast to " + toWhere + ": " + broadcastEvent);
-                        
+                        logger.debug("Announcing new broadcast event: " + broadcastEvent);
                         for (final String node : restServers) {
-                            if (!(toWhere.equals("all") || toWhere.equals(node)))
-                                continue;
-                            
-                            announceThreadPool.execute(new Runnable() {
+                            wipingCachePool.execute(new Runnable() {
                                 @Override
                                 public void run() {
-                                    RestClient restClient = restClientMap.get(node);
                                     try {
-                                        restClient.wipeCache(broadcastEvent.getEntity(), broadcastEvent.getEvent(),
-                                                broadcastEvent.getCacheKey());
+                                        restClientMap.get(node).wipeCache(broadcastEvent.getEntity(),
+                                                broadcastEvent.getEvent(), broadcastEvent.getCacheKey());
                                     } catch (IOException e) {
-                                        logger.error(
-                                                "Announce broadcast event failed, targetNode {} broadcastEvent {}, error msg: {}",
-                                                node, broadcastEvent, e);
-                                        syncErrorHandler.handleAnnounceError(node, restClient, broadcastEvent);
+                                        logger.warn("Thread failed during wipe cache at " + broadcastEvent, e);
                                     }
                                 }
                             });
@@ -148,23 +157,6 @@ public class Broadcaster {
                 }
             }
         });
-    }
-
-    private SyncErrorHandler getSyncErrorHandler(KylinConfig config) {
-        String clzName = config.getCacheSyncErrorHandler();
-        if (StringUtils.isEmpty(clzName)) {
-            clzName = DefaultSyncErrorHandler.class.getName();
-        }
-        return (SyncErrorHandler) ClassUtil.newInstance(clzName);
-    }
-
-    public KylinConfig getConfig() {
-        return config;
-    }
-    
-    public void stopAnnounce() {
-        announceThreadPool.shutdown();
-        announceMainLoop.shutdown();
     }
 
     // static listener survives cache wipe and goes after normal listeners
@@ -191,7 +183,6 @@ public class Broadcaster {
             addListener(lmap, SYNC_ALL, listener);
             addListener(lmap, SYNC_PRJ_SCHEMA, listener);
             addListener(lmap, SYNC_PRJ_DATA, listener);
-            addListener(lmap, SYNC_PRJ_ACL, listener);
         }
     }
 
@@ -214,10 +205,6 @@ public class Broadcaster {
 
     public void notifyProjectDataUpdate(String project) throws IOException {
         notifyListener(SYNC_PRJ_DATA, Event.UPDATE, project);
-    }
-
-    public void notifyProjectACLUpdate(String project) throws IOException {
-        notifyListener(SYNC_PRJ_ACL, Event.UPDATE, project);
     }
 
     public void notifyListener(String entity, Event event, String cacheKey) throws IOException {
@@ -244,14 +231,14 @@ public class Broadcaster {
         if (list.isEmpty())
             return;
 
-        logger.debug("Broadcasting " + event + ", " + entity + ", " + cacheKey);
+        logger.debug("Broadcasting" + event + ", " + entity + ", " + cacheKey);
 
         switch (entity) {
         case SYNC_ALL:
             for (Listener l : list) {
                 l.onClearAll(this);
             }
-            config.clearManagers(); // clear all registered managers in config
+            clearCache(); // clear broadcaster too in the end
             break;
         case SYNC_PRJ_SCHEMA:
             ProjectManager.getInstance(config).clearL2Cache();
@@ -265,12 +252,6 @@ public class Broadcaster {
                 l.onProjectDataChange(this, cacheKey);
             }
             break;
-        case SYNC_PRJ_ACL:
-            ProjectManager.getInstance(config).clearL2Cache();
-            for (Listener l : list) {
-                l.onProjectQueryACLChange(this, cacheKey);
-            }
-            break;
         default:
             for (Listener l : list) {
                 l.onEntityChange(this, entity, event, cacheKey);
@@ -278,23 +259,19 @@ public class Broadcaster {
             break;
         }
 
-        logger.debug("Done broadcasting " + event + ", " + entity + ", " + cacheKey);
+        logger.debug("Done broadcasting" + event + ", " + entity + ", " + cacheKey);
     }
 
     /**
-     * Announce an event out to peer kylin servers
+     * Broadcast an event out
      */
-    public void announce(String entity, String event, String key) {
-        announce(new BroadcastEvent(entity, event, key));
-    }
-
-    public void announce(BroadcastEvent event) {
+    public void queue(String entity, String event, String key) {
         if (broadcastEvents == null)
             return;
 
         try {
             counter.incrementAndGet();
-            broadcastEvents.putLast(event);
+            broadcastEvents.putLast(new BroadcastEvent(entity, event, key));
         } catch (Exception e) {
             counter.decrementAndGet();
             logger.error("error putting BroadcastEvent", e);
@@ -303,40 +280,6 @@ public class Broadcaster {
 
     public long getCounterAndClear() {
         return counter.getAndSet(0);
-    }
-
-    // ============================================================================
-
-    public static class DefaultSyncErrorHandler implements SyncErrorHandler {
-        Broadcaster broadcaster;
-        int maxRetryTimes;
-
-        @Override
-        public void init(Broadcaster broadcaster) {
-            this.maxRetryTimes = broadcaster.getConfig().getCacheSyncRetrys();
-            this.broadcaster = broadcaster;
-        }
-
-        @Override
-        public void handleAnnounceError(String targetNode, RestClient restClient, BroadcastEvent event) {
-            int retry = event.getRetryTime() + 1;
-
-            // when sync failed, put back to queue to retry
-            if (retry < maxRetryTimes) {
-                event.setRetryTime(retry);
-                event.setTargetNode(targetNode);
-                broadcaster.announce(event);
-            } else {
-                logger.error("Announce broadcast event exceeds retry limit, abandon targetNode {} broadcastEvent {}",
-                        targetNode, event);
-            }
-        }
-    }
-
-    public interface SyncErrorHandler {
-        void init(Broadcaster broadcaster);
-
-        void handleAnnounceError(String targetNode, RestClient restClient, BroadcastEvent event);
     }
 
     public enum Event {
@@ -373,18 +316,12 @@ public class Broadcaster {
         public void onProjectDataChange(Broadcaster broadcaster, String project) throws IOException {
         }
 
-        public void onProjectQueryACLChange(Broadcaster broadcaster, String project) throws IOException {
-        }
-
         public void onEntityChange(Broadcaster broadcaster, String entity, Event event, String cacheKey)
                 throws IOException {
         }
     }
 
     public static class BroadcastEvent {
-        private int retryTime;
-        private String targetNode; // NULL means to all
-        
         private String entity;
         private String event;
         private String cacheKey;
@@ -394,22 +331,6 @@ public class Broadcaster {
             this.entity = entity;
             this.event = event;
             this.cacheKey = cacheKey;
-        }
-
-        public int getRetryTime() {
-            return retryTime;
-        }
-
-        public void setRetryTime(int retryTime) {
-            this.retryTime = retryTime;
-        }
-
-        public String getTargetNode() {
-            return targetNode;
-        }
-
-        public void setTargetNode(String targetNode) {
-            this.targetNode = targetNode;
         }
 
         public String getEntity() {

@@ -44,7 +44,6 @@ import org.apache.kylin.dict.DictionaryGenerator;
 import org.apache.kylin.dict.IterableDictionaryValueEnumerator;
 import org.apache.kylin.engine.EngineFactory;
 import org.apache.kylin.gridtable.GTRecord;
-import org.apache.kylin.metadata.MetadataConstants;
 import org.apache.kylin.metadata.model.FunctionDesc;
 import org.apache.kylin.metadata.model.IJoinedFlatTableDesc;
 import org.apache.kylin.metadata.model.MeasureDesc;
@@ -84,17 +83,13 @@ public class ITInMemCubeBuilderTest extends LocalFileMetadataTestCase {
     @Test
     public void testSSBCubeMore() throws Exception {
         testBuild("ssb", //
-                LOCALMETA_TEST_DATA + "/data/" + MetadataConstants.KYLIN_INTERMEDIATE_PREFIX
-                        + "ssb_19920101000000_19920201000000.csv",
-                7000, 4);
+                LOCALMETA_TEST_DATA + "/data/kylin_intermediate_ssb_19920101000000_19920201000000.csv", 7000, 4);
     }
 
     @Test
     public void testSSBCube() throws Exception {
         testBuild("ssb", //
-                LOCALMETA_TEST_DATA + "/data/" + MetadataConstants.KYLIN_INTERMEDIATE_PREFIX
-                        + "ssb_19920101000000_19920201000000.csv",
-                1000, 1);
+                LOCALMETA_TEST_DATA + "/data/kylin_intermediate_ssb_19920101000000_19920201000000.csv", 1000, 1);
     }
 
     public void testBuild(String cubeName, String flatTable, int nInpRows, int nThreads) throws Exception {
@@ -118,7 +113,7 @@ public class ITInMemCubeBuilderTest extends LocalFileMetadataTestCase {
         //DoggedCubeBuilder cubeBuilder = new DoggedCubeBuilder(cube.getDescriptor(), dictionaryMap);
         cubeBuilder.setConcurrentThreads(nThreads);
 
-        ArrayBlockingQueue<String[]> queue = new ArrayBlockingQueue<String[]>(1000);
+        ArrayBlockingQueue<List<String>> queue = new ArrayBlockingQueue<List<String>>(1000);
         ExecutorService executorService = Executors.newSingleThreadExecutor();
 
         try {
@@ -149,18 +144,11 @@ public class ITInMemCubeBuilderTest extends LocalFileMetadataTestCase {
         }
     }
 
-    static void feedData(final CubeInstance cube, final String flatTable, ArrayBlockingQueue<String[]> queue, int count)
-            throws IOException, InterruptedException {
+    static void feedData(final CubeInstance cube, final String flatTable, ArrayBlockingQueue<List<String>> queue, int count) throws IOException, InterruptedException {
         feedData(cube, flatTable, queue, count, 0);
     }
 
-    static void feedData(final CubeInstance cube, final String flatTable, ArrayBlockingQueue<String[]> queue, int count,
-            long randSeed) throws IOException, InterruptedException {
-        feedData(cube, flatTable, queue, count, randSeed, Integer.MAX_VALUE);
-    }
-
-    static void feedData(final CubeInstance cube, final String flatTable, ArrayBlockingQueue<String[]> queue, int count,
-            long randSeed, int splitRowThreshold) throws IOException, InterruptedException {
+    static void feedData(final CubeInstance cube, final String flatTable, ArrayBlockingQueue<List<String>> queue, int count, long randSeed) throws IOException, InterruptedException {
         IJoinedFlatTableDesc flatDesc = EngineFactory.getJoinedFlatTableDesc(cube.getDescriptor());
         int nColumns = flatDesc.getAllColumns().size();
 
@@ -188,23 +176,15 @@ public class ITInMemCubeBuilderTest extends LocalFileMetadataTestCase {
             rand.setSeed(randSeed);
 
         // output with random data
-        int countOfLastSplit = 0;
         for (; count > 0; count--) {
-            String[] row = new String[nColumns];
+            ArrayList<String> row = new ArrayList<String>(nColumns);
             for (int i = 0; i < nColumns; i++) {
                 String[] candidates = distincts.get(i);
-                row[i] = candidates[rand.nextInt(candidates.length)];
+                row.add(candidates[rand.nextInt(candidates.length)]);
             }
             queue.put(row);
-
-            // put cut row if possible
-            countOfLastSplit++;
-            if (countOfLastSplit >= splitRowThreshold) {
-                queue.put(InputConverterUnitForRawData.CUT_ROW);
-                countOfLastSplit = 0;
-            }
         }
-        queue.put(InputConverterUnitForRawData.END_ROW);
+        queue.put(new ArrayList<String>(0));
     }
 
     static Map<TblColRef, Dictionary<String>> getDictionaryMap(CubeInstance cube, String flatTable) throws IOException {

@@ -18,37 +18,69 @@
 
 package org.apache.kylin.measure.dim;
 
+import java.util.Set;
+
+import org.apache.kylin.common.KylinConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Sets;
 
 public class DimCountDistinctAggFunc {
     private static final Logger logger = LoggerFactory.getLogger(DimCountDistinctAggFunc.class);
 
-    public static DimCountDistinctCounter init() {
+    public static DimDistinctCounter init() {
         return null;
     }
 
-    public static DimCountDistinctCounter initAdd(Object v) {
-        DimCountDistinctCounter counter = new DimCountDistinctCounter();
+    public static DimDistinctCounter initAdd(Object v) {
+        DimDistinctCounter counter = new DimDistinctCounter();
         counter.add(v);
         return counter;
     }
 
-    public static DimCountDistinctCounter add(DimCountDistinctCounter counter, Object v) {
+    public static DimDistinctCounter add(DimDistinctCounter counter, Object v) {
         if (counter == null) {
-            counter = new DimCountDistinctCounter();
+            counter = new DimDistinctCounter();
         }
         counter.add(v);
         return counter;
     }
 
-    public static DimCountDistinctCounter merge(DimCountDistinctCounter counter0, DimCountDistinctCounter counter1) {
+    public static DimDistinctCounter merge(DimDistinctCounter counter0, DimDistinctCounter counter1) {
         counter0.addAll(counter1);
         return counter0;
     }
 
-    public static long result(DimCountDistinctCounter counter) {
+    public static long result(DimDistinctCounter counter) {
         return counter == null ? 0L : counter.result();
     }
 
+    public static class DimDistinctCounter {
+        private final Set container;
+        private final int MAX_LENGTH;
+
+        public DimDistinctCounter() {
+            container = Sets.newHashSet();
+            MAX_LENGTH = KylinConfig.getInstanceFromEnv().getDimCountDistinctMaxCardinality();
+        }
+
+        public void add(Object v) {
+            if (container.size() >= MAX_LENGTH) {
+                throw new RuntimeException("Cardinality of dimension exceeds the threshold: " + MAX_LENGTH);
+            }
+            container.add(v);
+        }
+
+        public void addAll(DimDistinctCounter counter) {
+            if (container.size() + counter.container.size() >= MAX_LENGTH) {
+                throw new RuntimeException("Cardinality of dimension exceeds the threshold: " + MAX_LENGTH);
+            }
+            container.addAll(counter.container);
+        }
+
+        public long result() {
+            return container.size();
+        }
+    }
 }

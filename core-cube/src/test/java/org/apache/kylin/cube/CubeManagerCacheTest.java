@@ -19,11 +19,12 @@
 package org.apache.kylin.cube;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
 import org.apache.kylin.common.persistence.ResourceStore;
 import org.apache.kylin.common.util.LocalFileMetadataTestCase;
 import org.apache.kylin.cube.model.CubeDesc;
+import org.apache.kylin.metadata.MetadataManager;
+import org.apache.kylin.metadata.project.ProjectManager;
 import org.apache.kylin.metadata.realization.RealizationStatusEnum;
 import org.junit.After;
 import org.junit.Before;
@@ -40,6 +41,9 @@ public class CubeManagerCacheTest extends LocalFileMetadataTestCase {
     @Before
     public void setUp() throws Exception {
         this.createTestMetadata();
+        MetadataManager.clearCache();
+        CubeManager.clearCache();
+        ProjectManager.clearCache();
         cubeManager = CubeManager.getInstance(getTestConfig());
     }
 
@@ -61,24 +65,11 @@ public class CubeManagerCacheTest extends LocalFileMetadataTestCase {
         CubeInstance createdCube = cubeManager.getCube("a_whole_new_cube");
         assertEquals(0, createdCube.getSegments().size());
         assertEquals(RealizationStatusEnum.DISABLED, createdCube.getStatus());
+        createdCube.setStatus(RealizationStatusEnum.DESCBROKEN);
+        CubeUpdate cubeBuilder = new CubeUpdate(createdCube);
 
-        cubeManager.updateCubeStatus(createdCube, RealizationStatusEnum.READY);
-
-        assertEquals(RealizationStatusEnum.READY, cubeManager.getCube("a_whole_new_cube").getStatus());
-    }
-
-    @Test
-    public void testCachedAndSharedFlag() {
-        CubeInstance cube = cubeManager.getCube("test_kylin_cube_with_slr_empty");
-        assertEquals(true, cube.isCachedAndShared());
-        assertEquals(false, cube.latestCopyForWrite().isCachedAndShared());
-
-        try {
-            new CubeUpdate(cube);
-            fail();
-        } catch (IllegalArgumentException ex) {
-            // update cached object is illegal
-        }
+        cubeManager.updateCube(cubeBuilder);
+        assertEquals(RealizationStatusEnum.DESCBROKEN, cubeManager.getCube("a_whole_new_cube").getStatus());
     }
 
     public CubeDescManager getCubeDescManager() {

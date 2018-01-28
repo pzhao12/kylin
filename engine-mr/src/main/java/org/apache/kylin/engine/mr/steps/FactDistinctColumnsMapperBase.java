@@ -20,7 +20,9 @@ package org.apache.kylin.engine.mr.steps;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.Text;
@@ -61,8 +63,10 @@ abstract public class FactDistinctColumnsMapperBase<KEYIN, VALUEIN> extends Kyli
     protected CubeJoinedFlatTableEnrich intermediateTableDesc;
     protected int[] dictionaryColumnIndex;
 
-    protected FactDistinctColumnsReducerMapping reducerMapping;
-    
+    protected int uhcReducerCount;
+    protected int[] uhcIndex;
+    protected Map<Integer, Integer> columnIndexToReducerBeginId = new HashMap<>();
+
     @Override
     protected void doSetup(Context context) throws IOException {
         Configuration conf = context.getConfiguration();
@@ -86,8 +90,15 @@ abstract public class FactDistinctColumnsMapperBase<KEYIN, VALUEIN> extends Kyli
             dictionaryColumnIndex[i] = columnIndexOnFlatTbl;
         }
 
-        reducerMapping = new FactDistinctColumnsReducerMapping(cube,
-                conf.getInt(BatchConstants.CFG_HLL_REDUCER_NUM, 1));
+        uhcIndex = CubeManager.getInstance(config).getUHCIndex(cubeDesc);
+        uhcReducerCount = cube.getConfig().getUHCReducerCount();
+        int count = 0;
+        for (int i = 0; i < uhcIndex.length; i++) {
+            columnIndexToReducerBeginId.put(i, count * (uhcReducerCount - 1) + i);
+            if (uhcIndex[i] == 1) {
+                count++;
+            }
+        }
     }
 
     protected void handleErrorRecord(String[] record, Exception ex) throws IOException {

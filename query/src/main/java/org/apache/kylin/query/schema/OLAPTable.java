@@ -6,15 +6,15 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
+ * 
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+*/
 
 package org.apache.kylin.query.schema;
 
@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.java.AbstractQueryableTable;
@@ -48,10 +47,14 @@ import org.apache.calcite.sql.type.SqlTypeUtil;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.kylin.metadata.datatype.DataType;
 import org.apache.kylin.metadata.model.ColumnDesc;
+import org.apache.kylin.metadata.model.DataModelDesc;
 import org.apache.kylin.metadata.model.FunctionDesc;
 import org.apache.kylin.metadata.model.MeasureDesc;
 import org.apache.kylin.metadata.model.TableDesc;
+import org.apache.kylin.metadata.model.TblColRef;
 import org.apache.kylin.metadata.project.ProjectManager;
+import org.apache.kylin.metadata.realization.IRealization;
+import org.apache.kylin.metadata.realization.RealizationType;
 import org.apache.kylin.query.enumerator.OLAPQuery;
 import org.apache.kylin.query.enumerator.OLAPQuery.EnumeratorTypeEnum;
 import org.apache.kylin.query.relnode.OLAPTableScan;
@@ -60,6 +63,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 /**
  */
@@ -68,7 +72,6 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
     protected static final Logger logger = LoggerFactory.getLogger(OLAPTable.class);
 
     private static Map<String, SqlTypeName> SQLTYPE_MAPPING = new HashMap<String, SqlTypeName>();
-    private static Map<String, SqlTypeName> REGEX_SQLTYPE_MAPPING = new HashMap<String, SqlTypeName>();
 
     static {
         SQLTYPE_MAPPING.put("char", SqlTypeName.CHAR);
@@ -87,14 +90,12 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
         SQLTYPE_MAPPING.put("time", SqlTypeName.TIME);
         SQLTYPE_MAPPING.put("timestamp", SqlTypeName.TIMESTAMP);
         SQLTYPE_MAPPING.put("any", SqlTypeName.ANY);
-
-        REGEX_SQLTYPE_MAPPING.put("array\\<.+\\>", SqlTypeName.ARRAY);
     }
 
     private final boolean exposeMore;
     private final OLAPSchema olapSchema;
     private final TableDesc sourceTable;
-    protected RelDataType rowType;
+    private RelDataType rowType;
     private List<ColumnDesc> sourceColumns;
 
     public OLAPTable(OLAPSchema schema, TableDesc tableDesc, boolean exposeMore) {
@@ -134,7 +135,6 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
         return this.rowType;
     }
 
-    @SuppressWarnings("deprecation")
     private RelDataType deriveRowType(RelDataTypeFactory typeFactory) {
         RelDataTypeFactory.FieldInfoBuilder fieldInfo = typeFactory.builder();
         for (ColumnDesc column : sourceColumns) {
@@ -147,16 +147,6 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
 
     public static RelDataType createSqlType(RelDataTypeFactory typeFactory, DataType dataType, boolean isNullable) {
         SqlTypeName sqlTypeName = SQLTYPE_MAPPING.get(dataType.getName());
-        if (sqlTypeName == null) {
-            for (String reg : REGEX_SQLTYPE_MAPPING.keySet()) {
-                Pattern pattern = Pattern.compile(reg);
-                if (pattern.matcher(dataType.getName()).matches()) {
-                    sqlTypeName = REGEX_SQLTYPE_MAPPING.get(reg);
-                    break;
-                }
-            }
-        }
-
         if (sqlTypeName == null)
             throw new IllegalArgumentException("Unrecognized data type " + dataType);
 
@@ -164,11 +154,7 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
         int scale = dataType.getScale();
 
         RelDataType result;
-        if (sqlTypeName == SqlTypeName.ARRAY) {
-            String innerTypeName = dataType.getName().split("<|>")[1];
-            result = typeFactory.createArrayType(createSqlType(typeFactory, DataType.getType(innerTypeName), false),
-                    -1);
-        } else if (precision >= 0 && scale >= 0)
+        if (precision >= 0 && scale >= 0)
             result = typeFactory.createSqlType(sqlTypeName, precision, scale);
         else if (precision >= 0)
             result = typeFactory.createSqlType(sqlTypeName, precision);
@@ -188,6 +174,9 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
     private List<ColumnDesc> listSourceColumns() {
         ProjectManager mgr = ProjectManager.getInstance(olapSchema.getConfig());
 
+        // take care of computed columns
+        boolean exposeMore = olapSchema.getConfig().isPushDownEnabled() || this.exposeMore;
+
         List<ColumnDesc> tableColumns = mgr.listExposedColumns(olapSchema.getProjectName(), sourceTable, exposeMore);
 
         List<ColumnDesc> metricColumns = Lists.newArrayList();
@@ -203,6 +192,46 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
                 ColumnDesc fakeCountCol = func.newFakeRewriteColumn(sourceTable);
                 metricColumns.add(fakeCountCol);
             }
+        }
+
+        //if exist sum(x), where x is integer/short/byte
+        //to avoid overflow we upgrade x's type to long
+        //this includes checking two parts:
+        //1. sum measures in cubes:
+        HashSet<ColumnDesc> upgradeCols = Sets.newHashSet();
+        for (MeasureDesc m : mgr.listEffectiveMeasures(olapSchema.getProjectName(), sourceTable.getIdentity())) {
+            if (m.getFunction().isSum()) {
+                FunctionDesc func = m.getFunction();
+                if (func.getReturnDataType() != func.getRewriteFieldType() && //
+                        func.getReturnDataType().isBigInt() && //
+                        func.getRewriteFieldType().isIntegerFamily()) {
+                    upgradeCols.add(func.getParameter().getColRefs().get(0).getColumnDesc());
+                }
+            }
+        }
+        //2. All integer measures in non-cube realizations
+        for (IRealization realization : mgr.listAllRealizations(olapSchema.getProjectName())) {
+            if (realization.getType() == RealizationType.INVERTED_INDEX && realization.isReady()
+                    && realization.getModel().isFactTable(sourceTable.getIdentity())) {
+                DataModelDesc model = realization.getModel();
+                for (String metricColumn : model.getMetrics()) {
+                    TblColRef col = model.findColumn(metricColumn);
+                    if (col.getTable().equals(sourceTable.getIdentity()) && col.getType().isIntegerFamily()
+                            && !col.getType().isBigInt())
+                        upgradeCols.add(col.getColumnDesc());
+                }
+            }
+        }
+
+        for (ColumnDesc upgrade : upgradeCols) {
+            int index = tableColumns.indexOf(upgrade);
+            if (index < 0) {
+                throw new IllegalStateException(
+                        "Metric column " + upgrade + " is not found in the the project's columns");
+            }
+            tableColumns.get(index).setUpgradedType("bigint");
+            logger.info("To avoid overflow, upgraded {}'s type from {} to {}", tableColumns.get(index),
+                    tableColumns.get(index).getType(), tableColumns.get(index).getUpgradedType());
         }
 
         Collections.sort(tableColumns, new Comparator<ColumnDesc>() {
@@ -221,7 +250,7 @@ public class OLAPTable extends AbstractQueryableTable implements TranslatableTab
         return new OLAPTableScan(context.getCluster(), relOptTable, this, fields);
     }
 
-    protected int[] identityList(int n) {
+    private int[] identityList(int n) {
         int[] integers = new int[n];
         for (int i = 0; i < n; i++) {
             integers[i] = i;

@@ -23,19 +23,6 @@
 KylinApp.service('JobList',function(JobService,$q){
     var _this = this;
     this.jobs={};
-    this.jobFilter = {
-        cubeName : null,
-        timeFilterId : 1,
-        statusIds: []
-    };
-
-    this.clearJobFilter = function(){
-        this.jobFilter = {
-          cubeName : null,
-          timeFilterId : 1,
-          statusIds: []
-        };
-    };
 
     this.list = function(jobRequest){
         var defer = $q.defer();

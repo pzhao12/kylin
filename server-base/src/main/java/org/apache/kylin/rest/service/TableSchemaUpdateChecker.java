@@ -28,7 +28,7 @@ import javax.annotation.Nullable;
 
 import org.apache.kylin.cube.CubeInstance;
 import org.apache.kylin.cube.CubeManager;
-import org.apache.kylin.metadata.TableMetadataManager;
+import org.apache.kylin.metadata.MetadataManager;
 import org.apache.kylin.metadata.model.ColumnDesc;
 import org.apache.kylin.metadata.model.DataModelDesc;
 import org.apache.kylin.metadata.model.TableDesc;
@@ -41,7 +41,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 public class TableSchemaUpdateChecker {
-    private final TableMetadataManager metadataManager;
+    private final MetadataManager metadataManager;
     private final CubeManager cubeManager;
 
     static class CheckResult {
@@ -81,7 +81,7 @@ public class TableSchemaUpdateChecker {
         }
     }
 
-    TableSchemaUpdateChecker(TableMetadataManager metadataManager, CubeManager cubeManager) {
+    TableSchemaUpdateChecker(MetadataManager metadataManager, CubeManager cubeManager) {
         this.metadataManager = checkNotNull(metadataManager, "metadataManager is null");
         this.cubeManager = checkNotNull(cubeManager, "cubeManager is null");
     }
@@ -137,7 +137,7 @@ public class TableSchemaUpdateChecker {
 
         List<String> violateColumns = Lists.newArrayList();
         for (ColumnDesc column : origTable.getColumns()) {
-            if (!column.isComputedColumn() && usedColumns.contains(column)) {
+            if (!column.isComputedColumnn() && usedColumns.contains(column)) {
                 ColumnDesc newCol = newTable.findColumnByName(column.getName());
                 if (newCol == null || !isColumnCompatible(column, newCol)) {
                     violateColumns.add(column.getName());

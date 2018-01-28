@@ -23,12 +23,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.NavigableSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.persistence.JsonSerializer;
 import org.apache.kylin.common.persistence.ResourceStore;
 import org.apache.kylin.common.persistence.Serializer;
 import org.apache.kylin.job.exception.PersistentException;
+import org.apache.kylin.metadata.MetadataManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,23 +44,36 @@ public class ExecutableDao {
     private static final Serializer<ExecutablePO> JOB_SERIALIZER = new JsonSerializer<ExecutablePO>(ExecutablePO.class);
     private static final Serializer<ExecutableOutputPO> JOB_OUTPUT_SERIALIZER = new JsonSerializer<ExecutableOutputPO>(ExecutableOutputPO.class);
     private static final Logger logger = LoggerFactory.getLogger(ExecutableDao.class);
+    private static final ConcurrentMap<KylinConfig, ExecutableDao> CACHE = new ConcurrentHashMap<KylinConfig, ExecutableDao>();
+
+    private ResourceStore store;
 
     public static ExecutableDao getInstance(KylinConfig config) {
-        return config.getManager(ExecutableDao.class);
+        ExecutableDao r = CACHE.get(config);
+        if (r == null) {
+            synchronized (ExecutableDao.class) {
+                r = CACHE.get(config);
+                if (r == null) {
+                    r = new ExecutableDao(config);
+                    CACHE.put(config, r);
+                    if (CACHE.size() > 1) {
+                        logger.warn("More than one singleton exist");
+                    }
+                }
+            }
+        }
+        return r;
     }
 
-    // called by reflection
-    static ExecutableDao newInstance(KylinConfig config) throws IOException {
-        return new ExecutableDao(config);
+    public static void clearCache() {
+        synchronized (CACHE) {
+            CACHE.clear();
+        }
     }
-
-    // ============================================================================
-    
-    private ResourceStore store;
 
     private ExecutableDao(KylinConfig config) {
         logger.info("Using metadata url: " + config);
-        this.store = ResourceStore.getStore(config);
+        this.store = MetadataManager.getInstance(config).getStore();
     }
 
     private String pathOfJob(ExecutablePO job) {
@@ -76,8 +92,8 @@ public class ExecutableDao {
         return store.getResource(path, ExecutablePO.class, JOB_SERIALIZER);
     }
 
-    private long writeJobResource(String path, ExecutablePO job) throws IOException {
-        return store.putResource(path, job, JOB_SERIALIZER);
+    private void writeJobResource(String path, ExecutablePO job) throws IOException {
+        store.putResource(path, job, JOB_SERIALIZER);
     }
 
     private ExecutableOutputPO readJobOutputResource(String path) throws IOException {
@@ -159,20 +175,6 @@ public class ExecutableDao {
             return job;
         } catch (IOException e) {
             logger.error("error save job:" + job.getUuid(), e);
-            throw new PersistentException(e);
-        }
-    }
-
-    public ExecutablePO updateJob(ExecutablePO job) throws PersistentException {
-        try {
-            if (getJob(job.getUuid()) == null) {
-                throw new IllegalArgumentException("job id:" + job.getUuid() + " does not exist");
-            }
-            final long ts = writeJobResource(pathOfJob(job), job);
-            job.setLastModified(ts);
-            return job;
-        } catch (IOException e) {
-            logger.error("error update job:" + job.getUuid(), e);
             throw new PersistentException(e);
         }
     }

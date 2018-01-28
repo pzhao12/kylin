@@ -17,15 +17,11 @@
 */
 package org.apache.kylin.dict;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.util.Arrays;
-import java.util.Objects;
-import java.util.TreeMap;
-import java.util.concurrent.ExecutionException;
-
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 import org.apache.hadoop.fs.Path;
 import org.apache.kylin.common.KylinConfig;
 import org.apache.kylin.common.util.Dictionary;
@@ -36,12 +32,14 @@ import org.apache.kylin.dict.global.GlobalDictMetadata;
 import org.apache.kylin.dict.global.GlobalDictStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
-import com.google.common.cache.RemovalListener;
-import com.google.common.cache.RemovalNotification;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.concurrent.ExecutionException;
+import static com.google.common.base.Preconditions.checkState;
 
 /**
  * A dictionary based on Trie data structure that maps enumerations of byte[] to
@@ -60,27 +58,21 @@ import com.google.common.cache.RemovalNotification;
  *
  * @author sunyerui
  */
-@SuppressWarnings({"rawtypes", "unchecked", "serial"})
+@SuppressWarnings({ "rawtypes", "unchecked", "serial" })
 public class AppendTrieDictionary<T> extends CacheDictionary<T> {
-    public static final byte[] HEAD_MAGIC = new byte[]{0x41, 0x70, 0x70, 0x65, 0x63, 0x64, 0x54, 0x72, 0x69, 0x65, 0x44, 0x69, 0x63, 0x74}; // "AppendTrieDict"
+    public static final byte[] HEAD_MAGIC = new byte[] { 0x41, 0x70, 0x70, 0x65, 0x63, 0x64, 0x54, 0x72, 0x69, 0x65, 0x44, 0x69, 0x63, 0x74 }; // "AppendTrieDict"
     public static final int HEAD_SIZE_I = HEAD_MAGIC.length;
     private static final Logger logger = LoggerFactory.getLogger(AppendTrieDictionary.class);
 
-    transient private Boolean isSaveAbsolutePath = false;
     transient private String baseDir;
     transient private GlobalDictMetadata metadata;
     transient private LoadingCache<AppendDictSliceKey, AppendDictSlice> dictCache;
 
     public void init(String baseDir) throws IOException {
-        this.baseDir = convertToAbsolutePath(baseDir);
-        final GlobalDictStore globalDictStore = new GlobalDictHDFSStore(this.baseDir);
+        this.baseDir = baseDir;
+        final GlobalDictStore globalDictStore = new GlobalDictHDFSStore(baseDir);
         Long[] versions = globalDictStore.listAllVersions();
-
-        if (versions.length == 0) {
-            this.metadata = new GlobalDictMetadata(0, 0, 0, 0, null, new TreeMap<AppendDictSliceKey, String>());
-            return; // for the removed SegmentAppendTrieDictBuilder
-        }
-
+        checkState(versions.length > 0, "Global dict at %s is empty", baseDir);
         final long latestVersion = versions[versions.length - 1];
         final Path latestVersionPath = globalDictStore.getVersionDir(latestVersion);
         this.metadata = globalDictStore.getMetadata(latestVersion);
@@ -94,7 +86,7 @@ public class AppendTrieDictionary<T> extends CacheDictionary<T> {
             @Override
             public AppendDictSlice load(AppendDictSliceKey key) throws Exception {
                 AppendDictSlice slice = globalDictStore.readSlice(latestVersionPath.toString(), metadata.sliceFileMap.get(key));
-                logger.trace("Load slice with key {} and value {}", key, slice);
+                logger.info("Load slice with key {} and value {}", key, slice);
                 return slice;
             }
         });
@@ -152,7 +144,7 @@ public class AppendTrieDictionary<T> extends CacheDictionary<T> {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeUTF(convertToRelativePath(baseDir));
+        out.writeUTF(baseDir);
     }
 
     @Override
@@ -190,47 +182,5 @@ public class AppendTrieDictionary<T> extends CacheDictionary<T> {
     @Override
     public boolean contains(Dictionary other) {
         return false;
-    }
-
-    /**
-     * JIRA: https://issues.apache.org/jira/browse/KYLIN-2945
-     * if pass a absolute path, it may produce some problems like cannot find global dict after migration.
-     * so convert to relative path can avoid it and be better to maintain flexibility.
-     *
-     */
-    private String convertToRelativePath(String path) {
-        KylinConfig kylinConfig = KylinConfig.getInstanceFromEnv();
-        String hdfsWorkingDir = kylinConfig.getHdfsWorkingDirectory();
-        if (!isSaveAbsolutePath && path.startsWith(hdfsWorkingDir)) {
-            return path.substring(hdfsWorkingDir.length());
-        }
-        return path;
-    }
-
-    private String convertToAbsolutePath(String path) {
-        KylinConfig kylinConfig = KylinConfig.getInstanceFromEnv();
-        Path basicPath = new Path(path);
-        if (basicPath.toUri().getScheme() == null)
-            return kylinConfig.getHdfsWorkingDirectory() + path;
-
-        String[] paths = path.split("/resources/GlobalDict/");
-        if (paths.length == 2)
-            return kylinConfig.getHdfsWorkingDirectory() + "/resources/GlobalDict/" + paths[1];
-
-        paths = path.split("/resources/SegmentDict/");
-        if (paths.length == 2) {
-            return kylinConfig.getHdfsWorkingDirectory() + "/resources/SegmentDict/" + paths[1];
-        } else {
-            throw new RuntimeException("the basic directory of global dictionary only support the format which contains '/resources/GlobalDict/' or '/resources/SegmentDict/'");
-        }
-    }
-
-    /**
-     * only for test
-     *
-     * @param flag
-     */
-   void setSaveAbsolutePath(Boolean flag) {
-        this.isSaveAbsolutePath = flag;
     }
 }

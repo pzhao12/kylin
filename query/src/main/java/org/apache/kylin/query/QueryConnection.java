@@ -26,28 +26,23 @@ import java.util.Properties;
 
 import org.apache.calcite.jdbc.Driver;
 import org.apache.kylin.common.KylinConfig;
+import org.apache.kylin.metadata.project.ProjectInstance;
 import org.apache.kylin.query.schema.OLAPSchemaFactory;
+import org.apache.log4j.Logger;
 
 public class QueryConnection {
-    
+    private static final Logger logger = Logger.getLogger(QueryConnection.class);
     private static Boolean isRegister = false;
 
     public static Connection getConnection(String project) throws SQLException {
         if (!isRegister) {
-            try {
-                Class<?> aClass = Thread.currentThread().getContextClassLoader()
-                        .loadClass("org.apache.calcite.jdbc.Driver");
-                Driver o = (Driver) aClass.newInstance();
-                DriverManager.registerDriver(o);
-            } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
-                e.printStackTrace();
-            }
+            DriverManager.registerDriver(new Driver());
             isRegister = true;
         }
-        File olapTmp = OLAPSchemaFactory.createTempOLAPJson(project, KylinConfig.getInstanceFromEnv());
+        File olapTmp = OLAPSchemaFactory.createTempOLAPJson(ProjectInstance.getNormalizedProjectName(project),
+                KylinConfig.getInstanceFromEnv());
         Properties info = new Properties();
         info.put("model", olapTmp.getAbsolutePath());
-        info.put("typeSystem", "org.apache.kylin.query.calcite.KylinRelDataTypeSystem");
         return DriverManager.getConnection("jdbc:calcite:", info);
     }
 }

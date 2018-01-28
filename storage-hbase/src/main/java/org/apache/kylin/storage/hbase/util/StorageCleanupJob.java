@@ -58,7 +58,6 @@ import org.apache.kylin.job.engine.JobEngineConfig;
 import org.apache.kylin.job.execution.AbstractExecutable;
 import org.apache.kylin.job.execution.ExecutableManager;
 import org.apache.kylin.job.execution.ExecutableState;
-import org.apache.kylin.metadata.MetadataConstants;
 import org.apache.kylin.metadata.realization.IRealizationConstants;
 import org.apache.kylin.storage.hbase.HBaseConnection;
 import org.slf4j.Logger;
@@ -79,17 +78,16 @@ public class StorageCleanupJob extends AbstractApplication {
     protected static ExecutableManager executableManager = ExecutableManager.getInstance(KylinConfig.getInstanceFromEnv());
 
     private void cleanUnusedHBaseTables(Configuration conf) throws IOException {
-        KylinConfig kylinConfig = KylinConfig.getInstanceFromEnv();
-        CubeManager cubeMgr = CubeManager.getInstance(kylinConfig);
+        CubeManager cubeMgr = CubeManager.getInstance(KylinConfig.getInstanceFromEnv());
         // get all kylin hbase tables
-        Connection conn = HBaseConnection.get(kylinConfig.getStorageUrl());
+        Connection conn = HBaseConnection.get(KylinConfig.getInstanceFromEnv().getStorageUrl());
         Admin hbaseAdmin = conn.getAdmin();
-        String tableNamePrefix = kylinConfig.getHBaseTableNamePrefix();
+        String tableNamePrefix = IRealizationConstants.SharedHbaseStorageLocationPrefix;
         HTableDescriptor[] tableDescriptors = hbaseAdmin.listTables(tableNamePrefix + ".*");
         List<String> allTablesNeedToBeDropped = new ArrayList<String>();
         for (HTableDescriptor desc : tableDescriptors) {
             String host = desc.getValue(IRealizationConstants.HTableTag);
-            if (kylinConfig.getMetadataUrlPrefix().equalsIgnoreCase(host)) {
+            if (KylinConfig.getInstanceFromEnv().getMetadataUrlPrefix().equalsIgnoreCase(host)) {
                 //only take care htables that belongs to self, and created more than 2 days
                 allTablesNeedToBeDropped.add(desc.getTableName().getNameAsString());
             }
@@ -252,13 +250,13 @@ public class StorageCleanupJob extends AbstractApplication {
         final KylinConfig config = KylinConfig.getInstanceFromEnv();
         final CliCommandExecutor cmdExec = config.getCliCommandExecutor();
         final int uuidLength = 36;
-        final String preFix = MetadataConstants.KYLIN_INTERMEDIATE_PREFIX;
+        final String preFix = "kylin_intermediate_";
         final String uuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
         final String useDatabaseHql = "USE " + config.getHiveDatabaseForIntermediateTable() + ";";
         final HiveCmdBuilder hiveCmdBuilder = new HiveCmdBuilder();
         hiveCmdBuilder.addStatement(useDatabaseHql);
-        hiveCmdBuilder.addStatement("show tables " + "\'" + MetadataConstants.KYLIN_INTERMEDIATE_PREFIX + "*\'" + "; ");
+        hiveCmdBuilder.addStatement("show tables " + "\'kylin_intermediate_*\'" + "; ");
 
         Pair<Integer, String> result = cmdExec.execute(hiveCmdBuilder.build());
 

@@ -44,13 +44,11 @@ import java.util.logging.LogManager;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kylin.common.KylinConfig;
-import org.apache.kylin.common.QueryContextFacade;
 import org.apache.kylin.common.debug.BackdoorToggles;
 import org.apache.kylin.common.util.HBaseMetadataTestCase;
 import org.apache.kylin.common.util.Pair;
 import org.apache.kylin.metadata.project.ProjectInstance;
 import org.apache.kylin.metadata.querymeta.SelectedColumnMeta;
-import org.apache.kylin.metadata.realization.NoRealizationFoundException;
 import org.apache.kylin.query.relnode.OLAPContext;
 import org.apache.kylin.query.routing.rules.RemoveBlackoutRealizationsRule;
 import org.apache.kylin.query.util.PushDownUtil;
@@ -77,10 +75,6 @@ import com.google.common.io.Files;
 /**
  */
 public class KylinTestBase {
-
-    static {
-        System.setProperty("needCheckCC", "true");
-    }
 
     private static final Logger logger = LoggerFactory.getLogger(KylinTestBase.class);
     public static boolean PRINT_RESULT = false;
@@ -232,7 +226,6 @@ public class KylinTestBase {
 
     protected ITable executeQuery(IDatabaseConnection dbConn, String queryName, String sql, boolean needSort)
             throws Exception {
-        QueryContextFacade.resetCurrent();
 
         // change join type to match current setting
         sql = changeJoinType(sql, joinType);
@@ -267,9 +260,8 @@ public class KylinTestBase {
 
             return output(resultSet, needDisplay);
         } catch (SQLException sqlException) {
-            Pair<List<List<String>>, List<SelectedColumnMeta>> result = PushDownUtil.tryPushDownSelectQuery(
-                    ProjectInstance.DEFAULT_PROJECT_NAME, sql, "DEFAULT", sqlException,
-                    BackdoorToggles.getPrepareOnly());
+            Pair<List<List<String>>, List<SelectedColumnMeta>> result = PushDownUtil
+                    .tryPushDownSelectQuery(ProjectInstance.DEFAULT_PROJECT_NAME, sql, "DEFAULT", sqlException);
             if (result == null) {
                 throw sqlException;
             }
@@ -290,18 +282,6 @@ public class KylinTestBase {
                 }
             }
         }
-    }
-
-    protected Pair<List<List<String>>, List<SelectedColumnMeta>> tryPushDownSelectQuery(String sql) throws Exception {
-        SQLException mockException = new SQLException("", new NoRealizationFoundException(""));
-
-        return PushDownUtil.tryPushDownSelectQuery(ProjectInstance.DEFAULT_PROJECT_NAME, sql, "DEFAULT", mockException,
-                BackdoorToggles.getPrepareOnly());
-    }
-
-    protected Pair<List<List<String>>, List<SelectedColumnMeta>> tryPushDownNonSelectQuery(String sql,
-            boolean isPrepare) throws Exception {
-        return PushDownUtil.tryPushDownNonSelectQuery(ProjectInstance.DEFAULT_PROJECT_NAME, sql, "DEFAULT", isPrepare);
     }
 
     protected ITable executeDynamicQuery(IDatabaseConnection dbConn, String queryName, String sql,
@@ -711,7 +691,7 @@ public class KylinTestBase {
 
         //setup cube conn
         String project = ProjectInstance.DEFAULT_PROJECT_NAME;
-        cubeConnection = QueryConnection.getConnection(project);
+        cubeConnection = QueryDataSource.create(project, config).getConnection();
 
         //setup h2
         h2Connection = DriverManager.getConnection("jdbc:h2:mem:db" + (h2InstanceCount++) + ";CACHE_SIZE=32072", "sa",
